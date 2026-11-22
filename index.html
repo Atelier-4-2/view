@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <title>View — Atelier 4·2</title>
+  <meta name="description" content="Rhino 파일(.3dm)을 브라우저에서 바로 보는 뷰어. 레이어·단면·측정·PNG 내보내기. 파일은 이 기기 밖으로 나가지 않습니다.">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="page-header">
+    <div class="nav-inner">
+      <a class="brand" href="https://atelier-4-2.github.io/" aria-label="Atelier 4·2" data-i18n-aria="brandAria">4·2</a>
+      <div class="nav-right">
+        <nav class="site-switch" aria-label="Atelier 4·2" data-i18n-aria="navAria">
+          <a href="https://atelier-4-2.github.io/site/">Terrain</a>
+          <a href="https://atelier-4-2.github.io/board/">Board</a>
+          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
+          <a href="./" aria-current="page">View</a>
+        </nav>
+        <div class="lang" role="group" aria-label="Langue / 언어">
+          <button type="button" id="langFr" data-lang="fr" aria-pressed="false">FR</button>
+          <button type="button" id="langKo" data-lang="ko" aria-pressed="true">KO</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="app" id="app">
+    <aside class="panel" id="panel" aria-label="패널" data-i18n-aria="panelAria">
+      <div class="panel-body">
+        <details open id="secLayers">
+          <summary data-i18n="layers">레이어</summary>
+          <div class="sec-body">
+            <div class="btn-row">
+              <button type="button" class="btn sm" id="layersAllOn" data-i18n="allOn">모두 켜기</button>
+              <button type="button" class="btn sm" id="layersAllOff" data-i18n="allOff">모두 끄기</button>
+            </div>
+            <ul class="layer-list" id="layerList"></ul>
+            <p class="hint" id="layersEmpty" data-i18n="layersEmpty">파일을 열면 레이어가 여기에 나옵니다.</p>
+          </div>
+        </details>
+
+        <details id="secViews" hidden>
+          <summary data-i18n="namedViews">저장된 뷰</summary>
+          <div class="sec-body"><div class="chips" id="namedViews"></div></div>
+        </details>
+
+        <details id="secSection">
+          <summary data-i18n="section">단면</summary>
+          <div class="sec-body">
+            <div class="sec-row" data-axis="x">
+              <label class="chk"><input type="checkbox" class="sec-on"><span>X</span></label>
+              <input type="range" class="sec-range" min="0" max="1000" value="500" aria-label="X">
+              <button type="button" class="btn sm sec-flip" data-i18n="flip" aria-pressed="false">뒤집기</button>
+              <output class="sec-val"></output>
+            </div>
+            <div class="sec-row" data-axis="y">
+              <label class="chk"><input type="checkbox" class="sec-on"><span>Y</span></label>
+              <input type="range" class="sec-range" min="0" max="1000" value="500" aria-label="Y">
+              <button type="button" class="btn sm sec-flip" data-i18n="flip" aria-pressed="false">뒤집기</button>
+              <output class="sec-val"></output>
+            </div>
+            <div class="sec-row" data-axis="z">
+              <label class="chk"><input type="checkbox" class="sec-on"><span>Z</span></label>
+              <input type="range" class="sec-range" min="0" max="1000" value="500" aria-label="Z">
+              <button type="button" class="btn sm sec-flip" data-i18n="flip" aria-pressed="false">뒤집기</button>
+              <output class="sec-val"></output>
+            </div>
+            <label class="chk wide"><input type="checkbox" id="capOn" checked><span data-i18n="cap">잘린 면 채우기</span></label>
+            <p class="hint" data-i18n="capHint">면 채움은 닫힌 솔리드에서 정확합니다. 열린 면이 많으면 끄세요.</p>
+          </div>
+        </details>
+
+        <details id="secExport">
+          <summary data-i18n="export">내보내기</summary>
+          <div class="sec-body">
+            <label class="field"><span data-i18n="bg">배경</span>
+              <select id="expBg">
+                <option value="white" data-i18n="bgWhite">흰색</option>
+                <option value="transparent" data-i18n="bgTransparent">투명</option>
+              </select>
+            </label>
+            <label class="field"><span data-i18n="res">해상도</span>
+              <select id="expScale">
+                <option value="1">1×</option>
+                <option value="2" selected>2×</option>
+                <option value="4">4×</option>
+              </select>
+            </label>
+            <label class="chk wide"><input type="checkbox" id="expLine"><span data-i18n="lineDraw">선 그림(면 음영 없음)</span></label>
+            <button type="button" class="btn primary block" id="expBtn" data-i18n="savePng">PNG 저장</button>
+          </div>
+        </details>
+
+        <details id="secInfo">
+          <summary data-i18n="info">파일 정보</summary>
+          <div class="sec-body"><dl class="info" id="info"></dl></div>
+        </details>
+
+        <p class="privacy" data-i18n="privacy">파일은 이 기기 밖으로 나가지 않습니다.</p>
+      </div>
+    </aside>
+
+    <section class="stage" id="stage" aria-label="3D" data-i18n-aria="stageAria">
+      <canvas id="gl" tabindex="0" aria-label="3D 뷰"></canvas>
+
+      <div class="toolbar" id="toolbar">
+        <div class="tb-row">
+          <button type="button" class="btn icon-text" id="panelBtn" aria-expanded="true" aria-controls="panel" data-i18n="panel">패널</button>
+          <div class="seg" role="group" aria-label="뷰" data-i18n-aria="viewsAria" id="viewSeg">
+            <button type="button" data-view="persp" aria-pressed="true" data-i18n="vPersp" title="1">원근</button>
+            <button type="button" data-view="top" aria-pressed="false" data-i18n="vTop" title="2">평면</button>
+            <button type="button" data-view="front" aria-pressed="false" data-i18n="vFront" title="3">정면</button>
+            <button type="button" data-view="right" aria-pressed="false" data-i18n="vRight" title="4">우측</button>
+            <button type="button" data-view="axo" aria-pressed="false" data-i18n="vAxo" title="5">액소</button>
+          </div>
+          <button type="button" class="btn" id="fitBtn" data-i18n="fit" title="F">전체 보기</button>
+        </div>
+        <div class="tb-row">
+          <div class="seg" role="group" aria-label="표시 모드" data-i18n-aria="modesAria" id="modeSeg">
+            <button type="button" data-mode="shaded" aria-pressed="false" data-i18n="mShaded">음영</button>
+            <button type="button" data-mode="white" aria-pressed="true" data-i18n="mWhite">흰 모형</button>
+            <button type="button" data-mode="wire" aria-pressed="false" data-i18n="mWire">와이어</button>
+            <button type="button" data-mode="ghost" aria-pressed="false" data-i18n="mGhost">고스트</button>
+          </div>
+          <button type="button" class="btn" id="measureBtn" aria-pressed="false" data-i18n="measure" title="M">측정</button>
+          <button type="button" class="btn" id="openBtn" data-i18n="open">열기</button>
+        </div>
+      </div>
+
+      <div class="empty" id="empty">
+        <div class="empty-card" id="dropCard">
+          <p class="empty-title" data-i18n="emptyTitle">Rhino 파일(.3dm)을 여기에 놓으세요</p>
+          <p class="empty-sub" data-i18n="emptySub">파일은 이 기기 밖으로 나가지 않습니다</p>
+          <div class="btn-row center">
+            <button type="button" class="btn primary" id="pickBtn" data-i18n="pick">파일 선택</button>
+            <button type="button" class="btn" id="sampleBtn" data-i18n="sample">샘플 보기</button>
+          </div>
+          <p class="hint" data-i18n="formats">.3dm · .obj · .stl · .glb · .gltf</p>
+        </div>
+      </div>
+
+      <div class="progress" id="progress" hidden role="status" aria-live="polite">
+        <div class="progress-card">
+          <p id="progressText"></p>
+          <div class="bar"><i id="progressBar"></i></div>
+        </div>
+      </div>
+
+      <div class="measure-chip" id="measureChip" hidden>
+        <span id="measureText"></span>
+        <button type="button" class="btn sm" id="measureClear" data-i18n="clear">지우기</button>
+      </div>
+      <div class="measure-label" id="measureLabel" hidden></div>
+      <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+      <div class="drop-veil" id="veil" hidden data-i18n="dropHere">여기에 놓으세요</div>
+    </section>
+  </div>
+
+  <input type="file" id="fileInput" accept=".3dm,.obj,.stl,.glb,.gltf" hidden>
+  <noscript><p style="padding:24px">JavaScript가 필요합니다.</p></noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
