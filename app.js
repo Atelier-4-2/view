@@ -39,7 +39,7 @@ const DICT = {
     capLimit: '객체가 많아 면 채움을 껐습니다.', capsLines: '',
     fName: '이름', fSize: '크기', fUnit: '단위', fObjs: '객체', fLayers: '레이어', fBox: '범위',
     unitUnknown: '알 수 없음', rootLayer: '모델', views: '뷰',
-    toastSnap: '꼭짓점에 맞췄습니다',
+    toastSnap: '꼭짓점에 맞췄습니다', extBlocked: '외부 파일 참조는 차단했습니다.', secPos: '{a} 단면 위치', gl3d: '3D 뷰. 화살표 키로 회전, + − 로 확대 축소',
   },
   fr: {
     brandAria: 'Atelier 4·2 accueil', navAria: 'Sites Atelier 4·2', panelAria: 'Panneau', stageAria: 'Vue 3D',
@@ -65,7 +65,7 @@ const DICT = {
     capLimit: 'Trop d’objets : remplissage désactivé.', capsLines: '',
     fName: 'Nom', fSize: 'Taille', fUnit: 'Unité', fObjs: 'Objets', fLayers: 'Calques', fBox: 'Étendue',
     unitUnknown: 'inconnue', rootLayer: 'Modèle', views: 'Vues',
-    toastSnap: 'Accroché au sommet',
+    toastSnap: 'Accroché au sommet', extBlocked: 'Références externes bloquées.', secPos: 'Position de coupe {a}', gl3d: 'Vue 3D. Flèches pour tourner, + − pour zoomer',
   },
 };
 let lang = 'ko';
@@ -84,7 +84,8 @@ function applyLang() {
   $$('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
   $('#langFr').setAttribute('aria-pressed', String(lang === 'fr'));
   $('#langKo').setAttribute('aria-pressed', String(lang === 'ko'));
-  $('#gl').setAttribute('aria-label', t('stageAria'));
+  $('#gl').setAttribute('aria-label', t('gl3d'));
+  $$('.sec-range').forEach(r => r.setAttribute('aria-label', t('secPos', { a: r.closest('.sec-row').dataset.axis.toUpperCase() })));
   document.title = 'View — Atelier 4·2';
   if (state) { renderInfo(); updateMeasureUI(); updateSectionLabels(); }
 }
@@ -116,7 +117,6 @@ for (const c of [controlsP, controlsO]) {
   c.enableDamping = false;
   c.screenSpacePanning = true;
   c.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
-  c.listenToKeyEvents(canvas);
   c.addEventListener('change', requestRender);
 }
 controlsO.enabled = false;
@@ -148,6 +148,8 @@ let capObjects = []; // things to dispose on rebuild
 const edgeMats = new Map();
 const faceMats = new Map();
 const hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
+// depth-only: hides back edges in transparent line drawings without painting any colour
+const depthMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, clippingPlanes: clipPlanes });
 const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, clippingPlanes: clipPlanes });
 const flatMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, clippingPlanes: clipPlanes });
 let exporting = null;
@@ -201,18 +203,20 @@ function hexOf(c) {
 /* ---------------- mode ---------------- */
 function applyMode() {
   if (!state) return;
-  const flat = exporting && exporting.lineDraw && mode === 'white';
+  const ld = !!(exporting && exporting.lineDraw);
+  const lineFace = exporting && exporting.transparent ? depthMat : flatMat;
   for (const o of state.sources) {
     const lc = o.userData.lc || '#9a9aa2';
     if (o.isMesh) {
-      if (mode === 'white') o.material = flat ? flatMat : whiteMat;
+      if (ld && mode !== 'wire') o.material = lineFace;
+      else if (mode === 'white') o.material = whiteMat;
       else if (mode === 'shaded') o.material = o.userData.lc ? faceMat('shaded', lc) : o.userData.origMat;
       else if (mode === 'ghost') o.material = faceMat('ghost', lc);
       else o.material = hiddenMat;
       const ed = o.userData.edges;
       if (ed) {
-        ed.visible = mode !== 'shaded';
-        ed.material = mode === 'white' ? edgeMat('black', 0x111111)
+        ed.visible = mode !== 'shaded' || (ld && mode !== 'wire');
+        ed.material = (mode === 'white' || (ld && mode !== 'wire')) ? edgeMat('black', 0x111111)
           : mode === 'ghost' ? edgeMat('ghost', 0x6e6e73, 0.55)
           : edgeMat('w' + lc, new THREE.Color(lc).multiplyScalar(0.85));
       }
@@ -284,10 +288,12 @@ async function loadBuffer(buf, name, ext, size) {
 
 async function parse3dm(buf) {
   const { Rhino3dmLoader } = await import('three/addons/loaders/3DMLoader.js');
+  const namedRaw = await extractNamedViews(buf); // before parse: the loader transfers (detaches) the buffer
   const loader = new Rhino3dmLoader();
   loader.setLibraryPath(RHINO_LIB);
-  const obj = await new Promise((resolve, reject) => loader.parse(buf, resolve, reject));
-  loader.dispose();
+  let obj;
+  try { obj = await new Promise((resolve, reject) => loader.parse(buf, resolve, reject)); }
+  finally { loader.dispose(); }
   const ud = obj.userData || {};
   const layers = (ud.layers || []).map((l, i) => ({
     index: i, id: l.id, name: l.name || ('Layer ' + i), parentId: l.parentLayerId, color: hexOf(l.color), visible: l.visible !== false,
@@ -296,7 +302,36 @@ async function parse3dm(buf) {
   const settings = ud.settings || {};
   let unit = settings.modelUnitSystem;
   if (unit && typeof unit === 'object') unit = unit.value ?? unit.unitSystem;
-  return { kind: '3dm', root: obj, layers, unit: unitName(unit), named: ud.namedViews || ud.views || [], warnings: ud.warnings };
+  return { kind: '3dm', root: obj, layers, unit: unitName(unit), named: (ud.namedViews && ud.namedViews.length ? ud.namedViews : namedRaw), warnings: ud.warnings };
+}
+// three's 3DMLoader does not expose Rhino saved views, so read them straight from rhino3dm.
+async function extractNamedViews(buf) {
+  if (buf.byteLength > 150 * 1024 * 1024) return [];
+  let doc = null;
+  try {
+    const mod = await import(RHINO_LIB + 'rhino3dm.module.js');
+    const rhino = await (mod.default || mod)();
+    doc = rhino.File3dm.fromByteArray(new Uint8Array(buf));
+    const nvs = doc && doc.namedViews && doc.namedViews();
+    const out = [];
+    for (let i = 0; nvs && i < nvs.count; i++) {
+      const nv = nvs.get(i);
+      try {
+        const vp = nv.viewport || (nv.getViewport && nv.getViewport());
+        if (!vp) continue;
+        const pick = k => { try { const v = vp[k]; return typeof v === 'function' ? v.call(vp) : v; } catch (e) { return undefined; } };
+        const arr = a => (a ? [a[0], a[1], a[2]] : null);
+        const o = { name: nv.name, cameraLocation: arr(pick('cameraLocation')), cameraDirection: arr(pick('cameraDirection')), cameraUp: arr(pick('cameraUp')), isParallelProjection: !!pick('isParallelProjection'), isPerspectiveProjection: !!pick('isPerspectiveProjection') };
+        let fr = null;
+        try { fr = typeof vp.getFrustum === 'function' ? vp.getFrustum() : null; } catch (e) { /* no frustum */ }
+        if (fr) { const l = fr.left ?? fr[0], r = fr.right ?? fr[1]; if (isFinite(l) && isFinite(r) && r > l) o.frustumWidth = r - l; }
+        out.push(o);
+      } finally { nv.delete && nv.delete(); }
+    }
+    nvs && nvs.delete && nvs.delete();
+    return out;
+  } catch (e) { console.info('named views unavailable', e && e.message); return []; }
+  finally { try { doc && doc.delete && doc.delete(); } catch (e) { /* ignore */ } }
 }
 async function parseObj(buf) {
   const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
@@ -312,12 +347,21 @@ async function parseStl(buf) {
 }
 async function parseGltf(buf, ext) {
   const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-  const gltf = await new Promise((res, rej) => new GLTFLoader().parse(buf, '', res, rej));
+  // privacy: never let a .gltf pull buffers or textures from the network; only embedded data:/blob: URIs pass
+  let blocked = 0;
+  const manager = new THREE.LoadingManager();
+  manager.setURLModifier(url => {
+    if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+    blocked++;
+    return 'data:application/octet-stream;base64,';
+  });
+  const gltf = await new Promise((res, rej) => new GLTFLoader(manager).parse(buf, '', res, rej));
+  if (blocked) toast(t('extBlocked'), 5000);
   return { kind: 'gltf', root: gltf.scene, unit: null };
 }
 
 function unitName(v) {
-  const map = { 1: 'µm', 2: 'mm', 3: 'cm', 4: 'm', 5: 'km', 8: 'in', 9: 'ft' };
+  const map = { 1: 'µm', 2: 'mm', 3: 'cm', 4: 'm', 5: 'km', 6: 'µin', 7: 'mil', 8: 'in', 9: 'ft', 10: 'mi', 12: 'Å', 13: 'nm', 14: 'dm', 15: 'dam', 16: 'hm', 17: 'Mm', 18: 'Gm', 19: 'yd', 22: 'nmi' };
   if (typeof v === 'string') return v;
   return map[v] || null;
 }
@@ -327,11 +371,19 @@ function disposeState() {
   clearMeasure();
   clearCaps();
   scene.remove(state.root);
+  const shared = new Set([whiteMat, flatMat, hiddenMat, depthMat, ...faceMats.values(), ...edgeMats.values()]);
+  const mats = new Set();
   state.root.traverse(o => {
     if (o.geometry) o.geometry.dispose();
-    const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
-    for (const m of ms) if (m !== whiteMat && m !== flatMat && m !== hiddenMat && !m.isLineMaterial && ![...faceMats.values()].includes(m)) m.dispose?.();
+    for (const m of [].concat(o.material || [], o.userData.origMat || [])) if (!shared.has(m)) mats.add(m);
   });
+  for (const m of mats) {
+    for (const v of Object.values(m)) if (v && v.isTexture) v.dispose();
+    m.dispose();
+  }
+  // per-file layer-colour materials: drop them so repeated opens do not accumulate
+  faceMats.forEach(m => m.dispose()); faceMats.clear();
+  edgeMats.forEach(m => m.dispose()); edgeMats.clear();
   state = null;
 }
 
@@ -539,7 +591,7 @@ function renderInfo() {
 }
 function fmt(v) {
   const a = Math.abs(v);
-  if (a >= 1000) return v.toFixed(0);
+  if (a >= 10000) return v.toFixed(0);
   if (a >= 100) return v.toFixed(1);
   if (a >= 1) return v.toFixed(2);
   return v.toFixed(3);
@@ -554,7 +606,7 @@ function buildNamedViews() {
     const vp = v.viewport || v;
     const loc = vp.cameraLocation, dir = vp.cameraDirection, up = vp.cameraUp;
     if (!v.name || !loc || !dir) continue;
-    out.push({ name: v.name, loc: toV3(loc), dir: toV3(dir), up: up ? toV3(up) : new THREE.Vector3(0, 0, 1), persp: vp.isPerspectiveProjection !== false && vp.isParallelProjection !== true });
+    out.push({ name: v.name, loc: toV3(loc), dir: toV3(dir), up: up ? toV3(up) : new THREE.Vector3(0, 0, 1), persp: vp.isPerspectiveProjection !== false && vp.isParallelProjection !== true, fw: vp.frustumWidth });
   }
   state.namedViews = out;
   $('#secViews').hidden = !out.length;
@@ -579,7 +631,7 @@ function gotoNamed(nv) {
   const tgt = nv.loc.clone().add(dirN.clone().multiplyScalar(Math.max(dist, 1e-6)));
   c.position.copy(nv.loc);
   controls.target.copy(tgt);
-  if (!nv.persp) { c.position.copy(tgt).addScaledVector(dirN, -sph.radius * 3); setOrthoExtent(sph.radius); }
+  if (!nv.persp) { c.position.copy(tgt).addScaledVector(dirN, -sph.radius * 3); setOrthoExtent(sph.radius); if (nv.fw > 0) { const asp = (stage.clientWidth || 1) / (stage.clientHeight || 1); orthoHalf = asp >= 1 ? nv.fw / 2 / asp : nv.fw / 2; fitOrthoAspect(); } }
   c.lookAt(tgt);
   setNearFar(sph.radius);
   controls.update();
@@ -729,7 +781,7 @@ function clearCaps() {
 function rebuildCaps() {
   clearCaps();
   if (!state) return;
-  const want = $('#capOn').checked && (mode === 'white' || mode === 'shaded');
+  const want = $('#capOn').checked && (mode === 'white' || mode === 'shaded') && !(exporting && exporting.lineDraw);
   const active = ['x', 'y', 'z'].filter(a => sec[a].on);
   if (!want || !active.length) { requestRender(); return; }
   const meshes = state.sources.filter(o => o.isMesh);
@@ -743,7 +795,7 @@ function rebuildCaps() {
     const mk = (side, op) => {
       const m = new THREE.MeshBasicMaterial({
         depthWrite: false, depthTest: false, colorWrite: false, stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc,
-        side, clippingPlanes: [plane],
+        side, clippingPlanes: active.map(x => planes[x]), // target plane + every other active plane: removed regions must not feed the stencil
         stencilFail: op, stencilZFail: op, stencilZPass: op,
       });
       mats.push(m); return m;
@@ -798,6 +850,10 @@ $('#capOn').addEventListener('change', rebuildCaps);
 /* ---------------- measure ---------------- */
 const raycaster = new THREE.Raycaster();
 function unitLabel() { return state && state.unit ? ' ' + state.unit : ''; }
+function fmtLen(v) {
+  if (state && state.unit === 'mm' && Math.abs(v) >= 10000) return (v / 1000).toFixed(2) + ' m';
+  return fmt(v) + unitLabel();
+}
 function clearMeasure() {
   measurePts = [];
   if (measureGroup) {
@@ -828,7 +884,7 @@ function updateMeasureUI() {
   chip.hidden = false;
   if (measurePts.length === 2) {
     const d = measurePts[0].distanceTo(measurePts[1]);
-    txt.textContent = t('dist') + ' ' + fmt(d) + unitLabel();
+    txt.textContent = t('dist') + ' ' + fmtLen(d);
   } else {
     txt.textContent = measurePts.length === 0 ? t('measure1') : t('measure2');
   }
@@ -843,22 +899,30 @@ function updateMeasureLabel() {
   el.hidden = false;
   el.style.left = ((mid.x + 1) / 2 * w) + 'px';
   el.style.top = ((1 - mid.y) / 2 * h) + 'px';
-  el.textContent = fmt(measurePts[0].distanceTo(measurePts[1])) + unitLabel();
+  el.textContent = fmtLen(measurePts[0].distanceTo(measurePts[1]));
 }
 function pointInClip(p) { return clipPlanes.every(pl => pl.distanceToPoint(p) >= -1e-9); }
 function pickPoint(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
-  const targets = state.sources.filter(o => o.isMesh && o.visible);
+  const targets = state.sources.filter(o => (o.isMesh || o.isLine || o.isPoints) && o.visible);
+  const th = Math.max(state.box.getSize(new THREE.Vector3()).length() * 0.004, 1e-6);
+  raycaster.params.Line.threshold = th; raycaster.params.Points.threshold = th;
   const hits = raycaster.intersectObjects(targets, false).filter(h => pointInClip(h.point));
   if (!hits.length) return null;
   const h = hits[0];
   let best = h.point.clone(), bestD = 14, snapped = false;
-  if (h.face) {
+  let idxs = [];
+  if (h.face) idxs = [h.face.a, h.face.b, h.face.c];
+  else if (h.object.isPoints) idxs = [h.index];
+  else if (h.object.isLine && h.index != null) idxs = [h.index, h.index + 1];
+  {
     const pos = h.object.geometry.attributes.position;
-    for (const idx of [h.face.a, h.face.b, h.face.c]) {
+    for (const idx of idxs) {
+      if (idx == null || idx >= pos.count) continue;
       const v = new THREE.Vector3().fromBufferAttribute(pos, idx).applyMatrix4(h.object.matrixWorld);
+      if (!pointInClip(v)) continue; // clipped (invisible) vertices are not snap targets
       const s = v.clone().project(camera);
       const dx = ((s.x + 1) / 2 * rect.width) - (clientX - rect.left);
       const dy = ((1 - s.y) / 2 * rect.height) - (clientY - rect.top);
@@ -875,9 +939,10 @@ canvas.addEventListener('pointerup', e => {
   const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
   const dt = performance.now() - downAt.t;
   downAt = null;
-  if (moved > 5 || dt > 600) return;
+  if (moved > (e.pointerType === 'touch' ? 12 : 5) || dt > 600) return;
   const hit = pickPoint(e.clientX, e.clientY);
   if (!hit) return;
+  if (hit.snapped) toast(t('toastSnap'), 1200);
   if (measurePts.length >= 2) measurePts = [];
   measurePts.push(hit.p);
   drawMeasure(); updateMeasureUI(); requestRender();
@@ -886,32 +951,43 @@ function setMeasure(on) {
   measureOn = on;
   $('#measureBtn').setAttribute('aria-pressed', String(on));
   canvas.style.cursor = on ? 'crosshair' : '';
+  if (on && matchMedia('(max-width: 720px)').matches) setPanel(false);
   if (!on) clearMeasure(); else updateMeasureUI();
 }
 $('#measureBtn').addEventListener('click', () => setMeasure(!measureOn));
 $('#measureClear').addEventListener('click', () => { clearMeasure(); });
 
 /* ---------------- export ---------------- */
-function exportPng() {
+let exportBusy = false;
+async function exportPng() {
   if (!state) { toast(t('empty3d')); return; }
+  if (exportBusy) return;
+  exportBusy = true;
   const bg = $('#expBg').value;
   let k = +$('#expScale').value;
   const lineDraw = $('#expLine').checked;
   const w = stage.clientWidth, h = stage.clientHeight;
-  const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096);
-  while (k > 1 && Math.max(w, h) * k > maxDim) k--;
+  const gl = renderer.getContext();
+  const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 4096);
+  while (k > 1 && (Math.max(w, h) * k > maxDim || (w * k) * (h * k) > 16777216)) k--;
   const prevPR = renderer.getPixelRatio();
   const prevClear = new THREE.Color(); renderer.getClearColor(prevClear);
   const prevAlpha = renderer.getClearAlpha();
-  exporting = { lineDraw };
-  if (lineDraw) applyMode();
-  renderer.setPixelRatio(k);
-  renderer.setSize(w, h, false);
-  for (const m of edgeMats.values()) { m.linewidth = EDGE_PX * Math.max(1, k * 0.8); m.resolution.set(w * k, h * k); }
-  if (bg === 'transparent') renderer.setClearColor(0xffffff, 0); else renderer.setClearColor(0xffffff, 1);
-  const label = $('#measureLabel'); const lh = label.hidden; label.hidden = true;
-  renderer.render(scene, camera);
-  canvas.toBlob(blob => {
+  const label = $('#measureLabel'); const lh = label.hidden;
+  let blob = null;
+  try {
+    exporting = { lineDraw, transparent: bg === 'transparent' };
+    if (lineDraw) applyMode();
+    renderer.setPixelRatio(k);
+    renderer.setSize(w, h, false);
+    for (const m of edgeMats.values()) { m.linewidth = EDGE_PX * Math.max(1, k * 0.8); m.resolution.set(w * k, h * k); }
+    if (bg === 'transparent') renderer.setClearColor(0xffffff, 0); else renderer.setClearColor(0xffffff, 1);
+    label.hidden = true;
+    renderer.render(scene, camera);
+    blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  } catch (err) {
+    console.warn(err);
+  } finally {
     label.hidden = lh;
     exporting = null;
     renderer.setPixelRatio(prevPR);
@@ -920,14 +996,16 @@ function exportPng() {
     renderer.setClearColor(prevClear, prevAlpha);
     if (lineDraw) applyMode();
     requestRender();
-    if (!blob) { toast(t('exportFail')); return; }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + '_' + viewName + '_' + mode + '_' + k + 'x.png';
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-    toast(t('exported') + ' (' + Math.round(w * k) + '×' + Math.round(h * k) + ')');
-  }, 'image/png');
+    exportBusy = false;
+  }
+  if (!blob) { toast(t('exportFail')); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + '_' + viewName + '_' + mode + '_' + k + 'x.png';
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast(t('exported') + ' (' + Math.round(w * k) + '×' + Math.round(h * k) + ')');
+  window.__lastExport = { k, w: blob.size };
 }
 $('#expBtn').addEventListener('click', exportPng);
 
@@ -982,7 +1060,35 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'f' || e.key === 'F') fitView();
   else if (e.key === 'm' || e.key === 'M') setMeasure(!measureOn);
   else if (e.key === 'Escape' && measureOn) clearMeasure();
+  else if (state && e.target.closest && !e.target.closest('button, a, summary')) {
+    const step = THREE.MathUtils.degToRad(e.shiftKey ? 15 : 5);
+    if (e.key === 'ArrowLeft') { keyOrbit(-step, 0); e.preventDefault(); }
+    else if (e.key === 'ArrowRight') { keyOrbit(step, 0); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { keyOrbit(0, step); e.preventDefault(); }
+    else if (e.key === 'ArrowDown') { keyOrbit(0, -step); e.preventDefault(); }
+    else if (e.key === '+' || e.key === '=') { keyZoom(1 / 1.15); e.preventDefault(); }
+    else if (e.key === '-' || e.key === '_') { keyZoom(1.15); e.preventDefault(); }
+  }
 });
+function keyOrbit(dAz, dEl) {
+  const q = new THREE.Quaternion().setFromUnitVectors(camera.up.clone().normalize(), new THREE.Vector3(0, 1, 0));
+  const off = camera.position.clone().sub(controls.target).applyQuaternion(q);
+  const sp = new THREE.Spherical().setFromVector3(off);
+  sp.theta -= dAz;
+  sp.phi = Math.max(0.01, Math.min(Math.PI - 0.01, sp.phi - dEl));
+  off.setFromSpherical(sp).applyQuaternion(q.invert());
+  camera.position.copy(controls.target).add(off);
+  camera.lookAt(controls.target);
+  controls.update();
+  viewName = ''; syncViewButtons();
+  requestRender();
+}
+function keyZoom(f) {
+  if (camera === ortho) { ortho.zoom = Math.max(0.01, ortho.zoom / f); ortho.updateProjectionMatrix(); }
+  else { camera.position.sub(controls.target).multiplyScalar(f).add(controls.target); }
+  controls.update();
+  requestRender();
+}
 
 /* ---------------- boot ---------------- */
 applyLang();
@@ -995,4 +1101,5 @@ window.AtelierView = {
   setSection: (a, on, v) => { sec[a].on = on; if (v != null) sec[a].v = v; const row = $(`.sec-row[data-axis="${a}"]`); $('.sec-on', row).checked = on; $('.sec-range', row).value = sec[a].v; row.classList.toggle('on', on); updatePlanes(); updateSectionLabels(); rebuildCaps(); },
   setMode: m => { mode = m; applyMode(); },
   info: () => renderer.info,
+  get camera() { return camera; }, render: () => render(), exportPng: () => exportPng(), clipPlanes, pickPoint: (x, y) => pickPoint(x, y), edgeMats, faceMats,
 };
