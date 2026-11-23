@@ -286,3 +286,15 @@ input[type="number"], input[type="date"] {
 .info dt.full { grid-column: 1 / -1; margin-top: 8px; font-weight: 700; color: var(--ink); }
 .info dd.full { grid-column: 1 / -1; text-align: left; }
 .info dd.muted { color: var(--muted); }
+input[type="text"] {
+  min-height: 36px; width: 100%; min-width: 0; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--divider);
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 13.5px;
+}
+.rp-list { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.rp-card { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.rp-card h4 { margin: 0; font-size: 13.5px; }
+.rp-card textarea {
+  width: 100%; margin: 6px 0; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--divider);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: 12.5px; line-height: 1.45; resize: vertical;
+}
+.cap-frame { position: absolute; z-index: 4; pointer-events: none; border: 2px dashed #e5484d; box-shadow: 0 0 0 9999px rgb(0 0 0 / 12%); border-radius: 2px; }

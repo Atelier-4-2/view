@@ -7,6 +7,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { createSP, SP_DICT } from './sp.js';
 import { createExplode, EXPLODE_DICT } from './explode.js';
 import { createInfo, INFO_DICT } from './info.js';
+import { createPrompt, PROMPT_DICT } from './prompt.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Rhino is Z-up
 
@@ -71,8 +72,8 @@ const DICT = {
     toastSnap: 'Accroché au sommet', extBlocked: 'Références externes bloquées.', secPos: 'Position de coupe {a}', gl3d: 'Vue 3D. Flèches pour tourner, + − pour zoomer',
   },
 };
-Object.assign(DICT.ko, SP_DICT.ko, EXPLODE_DICT.ko, INFO_DICT.ko); Object.assign(DICT.fr, SP_DICT.fr, EXPLODE_DICT.fr, INFO_DICT.fr);
-let sp = null, ex = null, info = null;
+Object.assign(DICT.ko, SP_DICT.ko, EXPLODE_DICT.ko, INFO_DICT.ko, PROMPT_DICT.ko); Object.assign(DICT.fr, SP_DICT.fr, EXPLODE_DICT.fr, INFO_DICT.fr, PROMPT_DICT.fr);
+let sp = null, ex = null, info = null, rprompt = null, exportCrop = null;
 let lang = 'ko';
 try { const s = localStorage.getItem('atelier-lang'); if (s === 'fr' || s === 'ko') lang = s; } catch (e) { /* storage unavailable */ }
 const t = (k, p) => {
@@ -86,6 +87,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 function applyLang() {
   document.documentElement.lang = lang;
   $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  $$('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
   $$('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
   $('#langFr').setAttribute('aria-pressed', String(lang === 'fr'));
   $('#langKo').setAttribute('aria-pressed', String(lang === 'ko'));
@@ -95,6 +97,7 @@ function applyLang() {
   if (state) { renderInfo(); updateMeasureUI(); updateSectionLabels(); }
   if (sp) sp.refreshUI();
   if (info) info.refresh();
+  if (rprompt) rprompt.refresh();
 }
 
 /* ---------------- renderer, cameras ---------------- */
@@ -1023,10 +1026,11 @@ async function exportPng() {
     requestRender();
     exportBusy = false;
   }
+  if (blob && exportCrop) blob = await cropBlob(blob, exportCrop);
   if (!blob) { toast(t('exportFail')); return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + (spMode ? '_sectionpersp_' + sp.axis.toUpperCase() + '_' + sp.scene : '_' + viewName + '_' + mode) + '_' + k + 'x.png';
+  a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + (exportCrop ? '_rendercapture_' + exportCrop.tag : spMode ? '_sectionpersp_' + sp.axis.toUpperCase() + '_' + sp.scene : '_' + viewName + '_' + mode) + '_' + k + 'x.png';
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast(t('exported') + ' (' + Math.round(w * k) + '×' + Math.round(h * k) + ')');
@@ -1116,6 +1120,36 @@ function keyZoom(f) {
   requestRender();
 }
 
+async function cropBlob(blob, c) {
+  const bmp = await createImageBitmap(blob);
+  const x = Math.round(c.x * bmp.width), y = Math.round(c.y * bmp.height), w = Math.round(c.w * bmp.width), h = Math.round(c.h * bmp.height);
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, x, y, w, h, 0, 0, w, h);
+  if (bmp.close) bmp.close();
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+function frameRect() {
+  const W = stage.clientWidth, H = stage.clientHeight, ratio = +$('#rpRatio').value; // w / h
+  let w = W * 0.86, h = w / ratio;
+  if (h > H * 0.86) { h = H * 0.86; w = h * ratio; }
+  return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+}
+function updateFrame() {
+  const el = $('#capFrame'); const on = $('#rpShow').checked;
+  el.hidden = !on; if (!on) return;
+  const r = frameRect();
+  Object.assign(el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+}
+$('#rpShow').addEventListener('change', updateFrame); $('#rpRatio').addEventListener('change', updateFrame);
+new ResizeObserver(updateFrame).observe(stage);
+$('#rpSave').addEventListener('click', async () => {
+  if (!state) { toast(t('rpNeed')); return; }
+  const r = frameRect(), W = stage.clientWidth, H = stage.clientHeight;
+  const prevLine = $('#expLine').checked, prevScale = $('#expScale').value, prevBg = $('#expBg').value;
+  $('#expLine').checked = $('#rpSrc').value === 'line'; $('#expScale').value = '4'; $('#expBg').value = 'white';
+  exportCrop = { x: r.x / W, y: r.y / H, w: r.w / W, h: r.h / H, tag: ($('#rpRatio').value === '0.8' ? '4x5' : '3x2') + '_' + $('#rpSrc').value };
+  try { await exportPng(); } finally { exportCrop = null; $('#expLine').checked = prevLine; $('#expScale').value = prevScale; $('#expBg').value = prevBg; }
+});
 function goHome() {
   const h = state && state.home; if (!h) return;
   if (sp && sp.active) sp.exit();
@@ -1127,6 +1161,7 @@ function goHome() {
 }
 $('#homeBtn').addEventListener('click', goHome);
 info = createInfo({ THREE, canvas, $, t, getState: () => state, clipPlanes, fmt, requestRender, pointInClip, getCamera: () => camera, disabled: () => measureOn || !!(sp && sp.active) });
+rprompt = createPrompt({ $, t, toast });
 
 /* ---------------- section perspective + explode wiring ---------------- */
 function secSnapshot() { return JSON.parse(JSON.stringify(sec)); }
@@ -1187,7 +1222,7 @@ window.AtelierView = {
   get state() { return state; }, THREE,
   setSection: (a, on, v) => { sec[a].on = on; if (v != null) sec[a].v = v; const row = $(`.sec-row[data-axis="${a}"]`); $('.sec-on', row).checked = on; $('.sec-range', row).value = sec[a].v; row.classList.toggle('on', on); updatePlanes(); updateSectionLabels(); rebuildCaps(); },
   setMode: m => { mode = m; applyMode(); },
-  sp, ex, sec, objInfo: info, goHome,
+  sp, ex, sec, objInfo: info, goHome, rprompt,
   info: () => renderer.info,
   get camera() { return camera; }, render: () => render(), exportPng: () => exportPng(), clipPlanes, pickPoint: (x, y) => pickPoint(x, y), edgeMats, faceMats,
 };

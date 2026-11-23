@@ -161,6 +161,29 @@
           </div>
         </details>
 
+        <details id="secPrompt">
+          <summary data-i18n="rp">AI 렌더 프롬프트</summary>
+          <div class="sec-body">
+            <h3 class="sub" data-i18n="rpCapture">렌더용 캡처</h3>
+            <label class="field"><span data-i18n="rpFrame">틀</span>
+              <select id="rpRatio"><option value="0.8" data-i18n="rpR45">4:5</option><option value="1.5" data-i18n="rpR32">3:2</option></select>
+            </label>
+            <label class="field"><span data-i18n="rpSrc">캡처 종류</span>
+              <select id="rpSrc"><option value="white" data-i18n="rpWhite">흰 모형</option><option value="line" data-i18n="rpLine">선화</option></select>
+            </label>
+            <label class="chk wide"><input type="checkbox" id="rpShow"><span data-i18n="rpShow">틀 보기</span></label>
+            <button type="button" class="btn primary block" id="rpSave" data-i18n="rpSave">캡처 PNG 저장</button>
+            <h3 class="sub" data-i18n="rpInfo">프로젝트 정보</h3>
+            <label class="sp-field"><span data-i18n="rpMat">재료</span><input type="text" id="rpMatIn" data-i18n-ph="rpMatPh" maxlength="200"></label>
+            <label class="sp-field"><span data-i18n="rpMood">분위기</span><input type="text" id="rpMoodIn" data-i18n-ph="rpMoodPh" maxlength="200"></label>
+            <label class="sp-field"><span data-i18n="rpPlace">장소</span><input type="text" id="rpPlaceIn" data-i18n-ph="rpPlacePh" maxlength="200"></label>
+            <h3 class="sub" data-i18n="rpPrinciples">공통 원칙</h3>
+            <ul class="rp-list"><li data-i18n="rpP1"></li><li data-i18n="rpP2"></li><li data-i18n="rpP3"></li><li data-i18n="rpP4"></li></ul>
+            <div id="rpSteps"></div>
+            <p class="hint" data-i18n="rpTerms"></p>
+          </div>
+        </details>
+
         <details id="secExport">
           <summary data-i18n="export">내보내기</summary>
           <div class="sec-body">
@@ -227,6 +250,7 @@
           </div>
         </div>
       </div>
+      <div class="cap-frame" id="capFrame" hidden aria-hidden="true"></div>
       <div class="sp-handle" id="spHandle" hidden tabindex="0" role="slider" aria-label="소실점 (드래그)" data-i18n-aria="spVpAria"><i></i></div>
       <div class="sp-legend" id="spLegend" hidden></div>
 
