@@ -4,6 +4,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { createSP, SP_DICT } from './sp.js';
+import { createExplode, EXPLODE_DICT } from './explode.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Rhino is Z-up
 
@@ -68,6 +70,8 @@ const DICT = {
     toastSnap: 'Accroché au sommet', extBlocked: 'Références externes bloquées.', secPos: 'Position de coupe {a}', gl3d: 'Vue 3D. Flèches pour tourner, + − pour zoomer',
   },
 };
+Object.assign(DICT.ko, SP_DICT.ko, EXPLODE_DICT.ko); Object.assign(DICT.fr, SP_DICT.fr, EXPLODE_DICT.fr);
+let sp = null, ex = null;
 let lang = 'ko';
 try { const s = localStorage.getItem('atelier-lang'); if (s === 'fr' || s === 'ko') lang = s; } catch (e) { /* storage unavailable */ }
 const t = (k, p) => {
@@ -88,6 +92,7 @@ function applyLang() {
   $$('.sec-range').forEach(r => r.setAttribute('aria-label', t('secPos', { a: r.closest('.sec-row').dataset.axis.toUpperCase() })));
   document.title = 'View — Atelier 4·2';
   if (state) { renderInfo(); updateMeasureUI(); updateSectionLabels(); }
+  if (sp) sp.refreshUI();
 }
 
 /* ---------------- renderer, cameras ---------------- */
@@ -129,6 +134,7 @@ function requestRender() {
   requestAnimationFrame(() => { renderQueued = false; render(); });
 }
 function render() {
+  if (sp && sp.active) { sp.render(); return; }
   renderer.render(scene, camera);
   updateMeasureLabel();
 }
@@ -169,6 +175,7 @@ function resize() {
   renderer.setSize(w, h, false);
   persp.aspect = w / h; persp.updateProjectionMatrix();
   fitOrthoAspect();
+  if (sp) sp.onResize();
   for (const m of edgeMats.values()) m.resolution.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
   requestRender();
 }
@@ -368,6 +375,8 @@ function unitName(v) {
 
 function disposeState() {
   if (!state) return;
+  if (sp) sp.reset();
+  if (ex) ex.reset();
   clearMeasure();
   clearCaps();
   scene.remove(state.root);
@@ -472,6 +481,7 @@ async function install(parsed, name, size) {
   setView('persp', true);
   fitView();
   $('#empty').hidden = true;
+  syncExplodeUI(); buildExplodeLayers();
   if (parsed.warnings && parsed.warnings.length) console.info('3dm warnings', parsed.warnings.length);
 }
 
@@ -507,6 +517,7 @@ function updateLayerVisibility() {
       li.querySelector('input').checked = state.layerOn[i];
     });
   }
+  if (sp && sp.active) sp.onModelChange();
   requestRender();
 }
 
@@ -761,6 +772,7 @@ function updatePlanes() {
     }
   }
   for (const c of capObjects) if (c.cap) positionCap(c);
+  if (sp) sp.syncFromSections();
   requestRender();
 }
 function positionCap(c) {
@@ -781,14 +793,15 @@ function clearCaps() {
 function rebuildCaps() {
   clearCaps();
   if (!state) return;
-  const want = $('#capOn').checked && (mode === 'white' || mode === 'shaded') && !(exporting && exporting.lineDraw);
+  const spOn = !!(sp && sp.active);
+  const want = spOn ? sp.capWanted() : ($('#capOn').checked && (mode === 'white' || mode === 'shaded') && !(exporting && exporting.lineDraw));
   const active = ['x', 'y', 'z'].filter(a => sec[a].on);
   if (!want || !active.length) { requestRender(); return; }
-  const meshes = state.sources.filter(o => o.isMesh);
+  const meshes = state.sources.filter(o => o.isMesh && (!spOn || sp.isCappable(o)));
   if (meshes.length > CAP_MESH_LIMIT) { toast(t('capLimit')); return; }
-  const size = state.box.getSize(new THREE.Vector3()).length() * 3 || 10;
+  const size = state.box.getSize(new THREE.Vector3()).length() * (spOn ? 6 : 3) || 10;
   const capColor = mode === 'white' ? 0x111111 : 0x444449;
-  active.forEach((a, k) => {
+  (spOn ? active.filter(x => x === sp.axis) : active).forEach((a, k) => {
     const plane = planes[a];
     const mats = [];
     const parts = [];
@@ -811,8 +824,9 @@ function rebuildCaps() {
         o.add(c); parts.push(c);
       }
     }
-    const capMat = new THREE.MeshBasicMaterial({
-      color: capColor, side: THREE.DoubleSide, clippingPlanes: active.filter(x => x !== a).map(x => planes[x]),
+    const others = active.filter(x => x !== a).map(x => planes[x]);
+    const capMat = spOn ? sp.capMaterial(others) : new THREE.MeshBasicMaterial({
+      color: capColor, side: THREE.DoubleSide, clippingPlanes: others,
       stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
       stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
     });
@@ -966,6 +980,7 @@ async function exportPng() {
   const bg = $('#expBg').value;
   let k = +$('#expScale').value;
   const lineDraw = $('#expLine').checked;
+  const spMode = !!(sp && sp.active);
   const w = stage.clientWidth, h = stage.clientHeight;
   const gl = renderer.getContext();
   const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 4096);
@@ -976,6 +991,11 @@ async function exportPng() {
   const label = $('#measureLabel'); const lh = label.hidden;
   let blob = null;
   try {
+    if (spMode) {
+      renderer.setPixelRatio(k);
+      renderer.setSize(w, h, false);
+      blob = await sp.exportBlob(k, bg === 'transparent');
+    } else {
     exporting = { lineDraw, transparent: bg === 'transparent' };
     if (lineDraw) applyMode();
     renderer.setPixelRatio(k);
@@ -985,6 +1005,7 @@ async function exportPng() {
     label.hidden = true;
     renderer.render(scene, camera);
     blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    }
   } catch (err) {
     console.warn(err);
   } finally {
@@ -994,14 +1015,14 @@ async function exportPng() {
     renderer.setSize(w, h, false);
     for (const m of edgeMats.values()) { m.linewidth = EDGE_PX; m.resolution.set(w * prevPR, h * prevPR); }
     renderer.setClearColor(prevClear, prevAlpha);
-    if (lineDraw) applyMode();
+    if (lineDraw && !spMode) applyMode();
     requestRender();
     exportBusy = false;
   }
   if (!blob) { toast(t('exportFail')); return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + '_' + viewName + '_' + mode + '_' + k + 'x.png';
+  a.download = (state.name.replace(/\.[^.]+$/, '') || 'view') + (spMode ? '_sectionpersp_' + sp.axis.toUpperCase() + '_' + sp.scene : '_' + viewName + '_' + mode) + '_' + k + 'x.png';
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   toast(t('exported') + ' (' + Math.round(w * k) + '×' + Math.round(h * k) + ')');
@@ -1055,6 +1076,7 @@ $$('.lang button').forEach(b => b.addEventListener('click', () => {
 window.addEventListener('keydown', e => {
   if (e.target.closest && e.target.closest('input, select, textarea')) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (sp && sp.active) return;
   const map = { '1': 'persp', '2': 'top', '3': 'front', '4': 'right', '5': 'axo' };
   if (map[e.key]) setView(map[e.key]);
   else if (e.key === 'f' || e.key === 'F') fitView();
@@ -1090,6 +1112,55 @@ function keyZoom(f) {
   requestRender();
 }
 
+/* ---------------- section perspective + explode wiring ---------------- */
+function secSnapshot() { return JSON.parse(JSON.stringify(sec)); }
+function syncSecRows() {
+  $$('.sec-row').forEach(row => {
+    const a = row.dataset.axis;
+    $('.sec-on', row).checked = sec[a].on; $('.sec-range', row).value = sec[a].v;
+    $('.sec-flip', row).setAttribute('aria-pressed', String(sec[a].flip)); row.classList.toggle('on', sec[a].on);
+  });
+}
+const spCtx = {
+  THREE, renderer, scene, canvas, stage, $, $$, t, app: $('#app'),
+  getState: () => state, computeBox, sliderValue, sec, clipPlanes, fmt, toast, requestRender,
+  capObjects: () => capObjects, measureGroup: () => measureGroup, pointInClip,
+  setSectionRows: syncSecRows, updatePlanes, updateSectionLabels, rebuildCaps, setPanel,
+  getSecSnapshot: secSnapshot,
+  setSecSnapshot: snap => { for (const a of ['x', 'y', 'z']) Object.assign(sec[a], snap[a]); syncSecRows(); updatePlanes(); updateSectionLabels(); },
+  saveView: () => ({ viewName }), restoreView: v => { viewName = v.viewName; syncViewButtons(); },
+  controlsEnabled: on => { if (!on) { controlsP.enabled = false; controlsO.enabled = false; } else controls.enabled = true; },
+  measureOn: () => measureOn, setMeasure,
+};
+ex = createExplode({ THREE, getState: () => state, changed: () => { if (sp && sp.active) sp.onModelChange(); requestRender(); } });
+spCtx.explode = ex;
+function syncExplodeUI() {
+  $('#exKind').value = ex.st.kind; $('#exDir').value = ex.st.dir; $('#exGap').value = Math.round(ex.st.gap * 100); $('#exGapVal').textContent = Math.round(ex.st.gap * 100) + '%';
+  $('#exLayersBox').hidden = ex.st.kind !== 'layers';
+}
+spCtx.syncExplodeUI = syncExplodeUI;
+function buildExplodeLayers() {
+  const box = $('#exLayerList'); box.textContent = '';
+  if (!state) return;
+  const used = [...new Set(state.sources.map(o => o.userData.layer))];
+  for (const li of used) {
+    const l = document.createElement('label'); l.className = 'chk wide';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !ex.st.layers || ex.st.layers.has(li);
+    cb.addEventListener('change', () => {
+      const set = ex.st.layers || new Set(used);
+      if (cb.checked) set.add(li); else set.delete(li);
+      ex.set({ layers: set });
+    });
+    const nm = document.createElement('span'); nm.textContent = state.layers[li] ? state.layers[li].name : '#' + li;
+    l.append(cb, nm); box.append(l);
+  }
+}
+function exPatch(p) { if (sp && sp.active) ex.sideVec.copy(sp.explodeSide()); ex.set(p); syncExplodeUI(); }
+$('#exKind').addEventListener('change', e => { exPatch({ kind: e.target.value, layers: null }); if (e.target.value === 'layers') buildExplodeLayers(); });
+$('#exDir').addEventListener('change', e => exPatch({ dir: e.target.value }));
+$('#exGap').addEventListener('input', e => { if (!state) return; if ($('#exKind').value === 'layers') buildExplodeLayers(); exPatch({ gap: +e.target.value / 100 }); });
+sp = createSP(spCtx);
+
 /* ---------------- boot ---------------- */
 applyLang();
 applyBg();
@@ -1100,6 +1171,7 @@ window.AtelierView = {
   get state() { return state; }, THREE,
   setSection: (a, on, v) => { sec[a].on = on; if (v != null) sec[a].v = v; const row = $(`.sec-row[data-axis="${a}"]`); $('.sec-on', row).checked = on; $('.sec-range', row).value = sec[a].v; row.classList.toggle('on', on); updatePlanes(); updateSectionLabels(); rebuildCaps(); },
   setMode: m => { mode = m; applyMode(); },
+  sp, ex, sec,
   info: () => renderer.info,
   get camera() { return camera; }, render: () => render(), exportPng: () => exportPng(), clipPlanes, pickPoint: (x, y) => pickPoint(x, y), edgeMats, faceMats,
 };

@@ -88,6 +88,70 @@
           </div>
         </details>
 
+        <details id="secSP" hidden>
+          <summary data-i18n="spTitle">단면 투시</summary>
+          <div class="sec-body">
+            <div class="seg wide-seg" role="group" aria-label="단면 축" data-i18n-aria="spAxis" id="spAxis">
+              <button type="button" data-axis="y" aria-pressed="true" data-i18n="spFront">정면 (Y)</button>
+              <button type="button" data-axis="x" aria-pressed="false" data-i18n="spSide">측면 (X)</button>
+            </div>
+            <div class="btn-row sp-gap"><button type="button" class="btn sm" id="spFlip" data-i18n="spFlip">반대편에서 보기</button></div>
+            <label class="sp-field"><span data-i18n="spPos">절단 위치</span><input type="range" id="spPos" min="0" max="1000" value="500"></label>
+            <output class="sp-out" id="spPosVal"></output>
+            <label class="sp-field"><span data-i18n="spDepth">평면 ↔ 깊이</span><input type="range" id="spDepth" min="0" max="1000" value="650"></label>
+            <output class="sp-out" id="spEye"></output>
+            <label class="chk wide"><input type="checkbox" id="spCapBlack" checked><span data-i18n="spCapBlack">절단면 검정 채움</span></label>
+            <p class="hint" data-i18n="spCapHint">끄면 절단 외곽선만 남습니다.</p>
+
+            <div id="spSunBox" hidden class="sp-box">
+              <label class="field"><span data-i18n="sunDate">날짜</span><input type="date" id="sunDate"></label>
+              <label class="sp-field"><span><span data-i18n="sunTime">시각</span> <output id="sunTimeVal"></output></span><input type="range" id="sunTime" min="0" max="1439" step="5"></label>
+              <div class="num-grid">
+                <label class="field"><span data-i18n="sunLat">위도</span><input type="number" id="sunLat" step="0.001"></label>
+                <label class="field"><span data-i18n="sunLon">경도</span><input type="number" id="sunLon" step="0.001"></label>
+                <label class="field"><span data-i18n="sunNorth">북쪽 방향 (°)</span><input type="number" id="sunNorth" step="1"></label>
+                <label class="field"><span data-i18n="sunUtc">UTC 시차</span><input type="number" id="sunUtc" step="1"></label>
+              </div>
+              <output class="sp-out" id="sunInfo"></output>
+            </div>
+            <div id="spProgBox" hidden class="sp-box">
+              <p class="hint" data-i18n="progHint">강조할 레이어를 켜세요.</p>
+              <div id="spProgList"></div>
+            </div>
+
+            <h3 class="sub" data-i18n="entTitle">점경 (사람·나무)</h3>
+            <div class="btn-row">
+              <button type="button" class="btn sm" id="entAdd" data-i18n="entAdd">점경 넣기</button>
+              <label class="field inline"><span data-i18n="entH">높이 (m)</span><input type="number" id="entH" value="1.75" min="0.1" max="40" step="0.05"></label>
+            </div>
+            <input type="file" id="entFile" accept="image/png" hidden>
+            <ul class="ent-list" id="entList"></ul>
+            <p class="hint" id="entEmpty" data-i18n="entNone">점경이 없습니다.</p>
+            <p class="hint" data-i18n="entHint">투명 배경 선화 PNG.</p>
+            <div class="btn-row sp-gap">
+              <button type="button" class="btn sm" id="spSave" data-i18n="spSave">설정 저장 (JSON)</button>
+              <button type="button" class="btn sm" id="spLoadBtn" data-i18n="spLoad">설정 불러오기</button>
+            </div>
+            <input type="file" id="spLoadFile" accept="application/json,.json" hidden>
+            <p class="hint" data-i18n="spHintNote">패턴은 다음 단계입니다.</p>
+          </div>
+        </details>
+
+        <details id="secExplode">
+          <summary data-i18n="explode">분해</summary>
+          <div class="sec-body">
+            <label class="field"><span data-i18n="exKind">묶음</span>
+              <select id="exKind"><option value="floors" data-i18n="exFloors">층</option><option value="layers" data-i18n="exLayers">레이어</option></select>
+            </label>
+            <label class="field"><span data-i18n="exDir">방향</span>
+              <select id="exDir"><option value="up" data-i18n="exUp">위</option><option value="side" data-i18n="exSide">옆</option></select>
+            </label>
+            <label class="sp-field"><span><span data-i18n="exGap">간격</span> <output id="exGapVal">0%</output></span><input type="range" id="exGap" min="0" max="100" value="0"></label>
+            <div id="exLayersBox" hidden><p class="hint" data-i18n="exLayerPick">띄울 레이어</p><div id="exLayerList"></div></div>
+            <p class="hint" data-i18n="exHint">층은 슬래브 높이로 자동 묶습니다.</p>
+          </div>
+        </details>
+
         <details id="secExport">
           <summary data-i18n="export">내보내기</summary>
           <div class="sec-body">
@@ -132,6 +196,7 @@
             <button type="button" data-view="axo" aria-pressed="false" data-i18n="vAxo" title="5">액소</button>
           </div>
           <button type="button" class="btn" id="fitBtn" data-i18n="fit" title="F">전체 보기</button>
+          <button type="button" class="btn" id="spBtn" aria-pressed="false" data-i18n="spBtn">단면 투시</button>
         </div>
         <div class="tb-row">
           <div class="seg" role="group" aria-label="표시 모드" data-i18n-aria="modesAria" id="modeSeg">
@@ -143,7 +208,17 @@
           <button type="button" class="btn" id="measureBtn" aria-pressed="false" data-i18n="measure" title="M">측정</button>
           <button type="button" class="btn" id="openBtn" data-i18n="open">열기</button>
         </div>
+        <div class="tb-row sp-only">
+          <div class="seg" role="group" aria-label="장면" data-i18n-aria="spScenes" id="spSceneSeg">
+            <button type="button" data-scene="line" aria-pressed="true" data-i18n="spLine">선화</button>
+            <button type="button" data-scene="sun" aria-pressed="false" data-i18n="spSun">햇빛</button>
+            <button type="button" data-scene="explode" aria-pressed="false" data-i18n="spExplode">분해</button>
+            <button type="button" data-scene="program" aria-pressed="false" data-i18n="spProgram">구성</button>
+          </div>
+        </div>
       </div>
+      <div class="sp-handle" id="spHandle" hidden tabindex="0" role="slider" aria-label="소실점 (드래그)" data-i18n-aria="spVpAria"><i></i></div>
+      <div class="sp-legend" id="spLegend" hidden></div>
 
       <div class="empty" id="empty">
         <div class="empty-card" id="dropCard">
