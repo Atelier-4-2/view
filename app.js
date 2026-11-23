@@ -1073,6 +1073,10 @@ $('#expBtn').addEventListener('click', exportPng);
 
 /* ---------------- file input, drag and drop ---------------- */
 const fileInput = $('#fileInput');
+// iOS/iPadOS maps `accept` extensions to UTIs; .3dm has none unless a Rhino-aware app is installed,
+// so the picker greys the file out. Drop the filter there; openFile() still checks the extension.
+const isIOS = /iP(hone|od|ad)/.test(navigator.platform || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (isIOS) fileInput.removeAttribute('accept');
 const pickFile = () => fileInput.click();
 $('#pickBtn').addEventListener('click', pickFile);
 $('#openBtn').addEventListener('click', pickFile);
