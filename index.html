@@ -152,6 +152,15 @@
           </div>
         </details>
 
+        <details id="secObj">
+          <summary data-i18n="objInfo">부재 정보</summary>
+          <div class="sec-body">
+            <p class="hint" id="objHint" data-i18n="objHint">모델의 부재를 누르면 정보가 여기에 나옵니다.</p>
+            <dl class="info" id="objDl"></dl>
+            <button type="button" class="btn sm sp-gap" id="objClear" hidden data-i18n="oClear">선택 해제</button>
+          </div>
+        </details>
+
         <details id="secExport">
           <summary data-i18n="export">내보내기</summary>
           <div class="sec-body">
@@ -197,6 +206,7 @@
           </div>
           <button type="button" class="btn" id="fitBtn" data-i18n="fit" title="F">전체 보기</button>
           <button type="button" class="btn" id="spBtn" aria-pressed="false" data-i18n="spBtn">단면 투시</button>
+          <button type="button" class="btn" id="homeBtn" data-i18n="home">처음 구도</button>
         </div>
         <div class="tb-row">
           <div class="seg" role="group" aria-label="표시 모드" data-i18n-aria="modesAria" id="modeSeg">

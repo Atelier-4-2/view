@@ -694,6 +694,7 @@ export function createSP(ctx) {
     if (!s) { ctx.toast(t('spNeed')); return false; }
     if (!(renderer.getContext() instanceof WebGL2RenderingContext)) { ctx.toast(t('spRenderFail')); return false; }
     if (ctx.measureOn()) ctx.setMeasure(false);
+    if (ctx.clearSelection) ctx.clearSelection();
     snapshot = { view: ctx.saveView(), sec: ctx.getSecSnapshot(), exGap: ctx.explode.st.gap };
     const sc = ctx.sec;
     S.axis = (sc.x.on && !sc.y.on) ? 'x' : 'y';

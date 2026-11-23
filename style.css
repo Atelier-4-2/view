@@ -281,3 +281,8 @@ input[type="number"], input[type="date"] {
 }
 .lg-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }
 .chk.wide.prog-row { margin-top: 2px; min-height: 30px; }
+
+/* object info + prompt helper */
+.info dt.full { grid-column: 1 / -1; margin-top: 8px; font-weight: 700; color: var(--ink); }
+.info dd.full { grid-column: 1 / -1; text-align: left; }
+.info dd.muted { color: var(--muted); }

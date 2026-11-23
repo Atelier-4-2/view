@@ -6,6 +6,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { createSP, SP_DICT } from './sp.js';
 import { createExplode, EXPLODE_DICT } from './explode.js';
+import { createInfo, INFO_DICT } from './info.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Rhino is Z-up
 
@@ -70,8 +71,8 @@ const DICT = {
     toastSnap: 'Accroché au sommet', extBlocked: 'Références externes bloquées.', secPos: 'Position de coupe {a}', gl3d: 'Vue 3D. Flèches pour tourner, + − pour zoomer',
   },
 };
-Object.assign(DICT.ko, SP_DICT.ko, EXPLODE_DICT.ko); Object.assign(DICT.fr, SP_DICT.fr, EXPLODE_DICT.fr);
-let sp = null, ex = null;
+Object.assign(DICT.ko, SP_DICT.ko, EXPLODE_DICT.ko, INFO_DICT.ko); Object.assign(DICT.fr, SP_DICT.fr, EXPLODE_DICT.fr, INFO_DICT.fr);
+let sp = null, ex = null, info = null;
 let lang = 'ko';
 try { const s = localStorage.getItem('atelier-lang'); if (s === 'fr' || s === 'ko') lang = s; } catch (e) { /* storage unavailable */ }
 const t = (k, p) => {
@@ -93,6 +94,7 @@ function applyLang() {
   document.title = 'View — Atelier 4·2';
   if (state) { renderInfo(); updateMeasureUI(); updateSectionLabels(); }
   if (sp) sp.refreshUI();
+  if (info) info.refresh();
 }
 
 /* ---------------- renderer, cameras ---------------- */
@@ -377,6 +379,7 @@ function disposeState() {
   if (!state) return;
   if (sp) sp.reset();
   if (ex) ex.reset();
+  if (info) info.reset();
   clearMeasure();
   clearCaps();
   scene.remove(state.root);
@@ -480,6 +483,7 @@ async function install(parsed, name, size) {
   applyMode();
   setView('persp', true);
   fitView();
+  { const sph = state.box.getBoundingSphere(new THREE.Sphere()); state.home = { cam: 'persp', pos: persp.position.clone(), up: persp.up.clone(), target: controls.target.clone(), r: Math.max(sph.radius, 1e-6), viewName: 'persp' }; }
   $('#empty').hidden = true;
   syncExplodeUI(); buildExplodeLayers();
   if (parsed.warnings && parsed.warnings.length) console.info('3dm warnings', parsed.warnings.length);
@@ -1112,6 +1116,18 @@ function keyZoom(f) {
   requestRender();
 }
 
+function goHome() {
+  const h = state && state.home; if (!h) return;
+  if (sp && sp.active) sp.exit();
+  useCamera(h.cam);
+  const c = h.cam === 'ortho' ? ortho : persp;
+  c.up.copy(h.up); c.position.copy(h.pos); controls.target.copy(h.target);
+  c.lookAt(h.target); setNearFar(h.r);
+  controls.update(); viewName = h.viewName; syncViewButtons(); requestRender();
+}
+$('#homeBtn').addEventListener('click', goHome);
+info = createInfo({ THREE, canvas, $, t, getState: () => state, clipPlanes, fmt, requestRender, pointInClip, getCamera: () => camera, disabled: () => measureOn || !!(sp && sp.active) });
+
 /* ---------------- section perspective + explode wiring ---------------- */
 function secSnapshot() { return JSON.parse(JSON.stringify(sec)); }
 function syncSecRows() {
@@ -1130,7 +1146,7 @@ const spCtx = {
   setSecSnapshot: snap => { for (const a of ['x', 'y', 'z']) Object.assign(sec[a], snap[a]); syncSecRows(); updatePlanes(); updateSectionLabels(); },
   saveView: () => ({ viewName }), restoreView: v => { viewName = v.viewName; syncViewButtons(); },
   controlsEnabled: on => { if (!on) { controlsP.enabled = false; controlsO.enabled = false; } else controls.enabled = true; },
-  measureOn: () => measureOn, setMeasure,
+  measureOn: () => measureOn, setMeasure, clearSelection: () => { if (info) info.select(null); },
 };
 ex = createExplode({ THREE, getState: () => state, changed: () => { if (sp && sp.active) sp.onModelChange(); requestRender(); } });
 spCtx.explode = ex;
@@ -1171,7 +1187,7 @@ window.AtelierView = {
   get state() { return state; }, THREE,
   setSection: (a, on, v) => { sec[a].on = on; if (v != null) sec[a].v = v; const row = $(`.sec-row[data-axis="${a}"]`); $('.sec-on', row).checked = on; $('.sec-range', row).value = sec[a].v; row.classList.toggle('on', on); updatePlanes(); updateSectionLabels(); rebuildCaps(); },
   setMode: m => { mode = m; applyMode(); },
-  sp, ex, sec,
+  sp, ex, sec, objInfo: info, goHome,
   info: () => renderer.info,
   get camera() { return camera; }, render: () => render(), exportPng: () => exportPng(), clipPlanes, pickPoint: (x, y) => pickPoint(x, y), edgeMats, faceMats,
 };
