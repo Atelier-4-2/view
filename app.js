@@ -181,6 +181,7 @@ function resize() {
   persp.aspect = w / h; persp.updateProjectionMatrix();
   fitOrthoAspect();
   if (sp) sp.onResize();
+  if (info) info.onResize(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
   for (const m of edgeMats.values()) m.resolution.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
   requestRender();
 }

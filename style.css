@@ -277,7 +277,7 @@ input[type="number"], input[type="date"] {
 .sp-handle:active { cursor: grabbing; }
 .sp-legend {
   position: absolute; z-index: 5; left: 12px; bottom: 12px; max-width: min(240px, calc(100% - 24px)); max-height: 40%; overflow: auto;
-  padding: 8px 12px; border-radius: 12px; background: var(--nav); border: 1px solid var(--divider); font-size: 12.5px; color: #1d1d1f;
+  padding: 8px 12px; border-radius: 12px; background: var(--nav); border: 1px solid var(--divider); font-size: 12.5px; color: var(--ink);
 }
 .lg-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }
 .chk.wide.prog-row { margin-top: 2px; min-height: 30px; }

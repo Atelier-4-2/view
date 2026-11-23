@@ -5,26 +5,26 @@
 export const SP_DICT = {
   ko: {
     spBtn: '단면 투시', spTitle: '단면 투시', spAxis: '단면 축', spFront: '정면 (Y)', spSide: '측면 (X)', spFlip: '반대편에서 보기',
-    spPos: '절단 위치', spDepth: '평면 ↔ 깊이', spEye: '눈높이 {h} m · 거리 {d} m', spCapBlack: '절단면 검정 채움', spCapHint: '끄면 절단 외곽선만 남습니다.',
+    spPos: '절단 위치', spDepth: '평면 ↔ 깊이', spEye: '눈높이 {h} m · 거리 {d} m', spCapBlack: '절단면 검정 채움', spLw: '선 굵기', spCapHint: '끄면 절단 외곽선만 남습니다.',
     spScenes: '장면', spLine: '선화', spSun: '햇빛', spExplode: '분해', spProgram: '구성',
     spNeed: '모델을 먼저 여세요.', spNoCap: '객체가 많아 절단면 채움을 껐습니다.', spVpAria: '소실점 (드래그)',
     sunDate: '날짜', sunTime: '시각', sunLat: '위도', sunLon: '경도', sunNorth: '북쪽 방향 (°)', sunUtc: 'UTC 시차', sunInfo: '태양 고도 {el}° · 방위 {az}°', sunNight: '해가 지평선 아래입니다',
     progHint: '강조할 레이어를 켜세요. 나머지는 연한 회색입니다.', progAccent: '강조',
     entTitle: '점경 (사람·나무)', entAdd: '점경 넣기', entH: '높이 (m)', entFlip: '좌우 반전', entDel: '삭제', entHint: '투명 배경 선화 PNG. 놓을 바닥을 누르세요. 끌어서 이동, Shift는 깊이 이동.',
-    entPlace: '점경을 놓을 바닥을 누르세요', entNone: '점경이 없습니다.', entBadImg: '이미지를 읽지 못했습니다.', entItem: '점경 {n}',
+    entPlace: '점경을 놓을 바닥을 누르세요', entCleared: '단면 방향이 바뀌어 점경을 지웠습니다', entNone: '점경이 없습니다.', entBadImg: '이미지를 읽지 못했습니다.', entItem: '점경 {n}',
     spSave: '설정 저장 (JSON)', spLoad: '설정 불러오기', spSaved: '단면 투시 설정을 저장했습니다', spLoaded: '단면 투시 설정을 불러왔습니다', spBadJson: '설정 파일을 읽지 못했습니다.',
     spRenderFail: '이 기기에서는 선 추출을 쓸 수 없습니다 (WebGL2 필요).',
     spHintNote: '패턴(마루·벽돌 선)은 다음 단계입니다.',
   },
   fr: {
     spBtn: 'Coupe perspective', spTitle: 'Coupe perspective', spAxis: 'Axe de coupe', spFront: 'Face (Y)', spSide: 'Côté (X)', spFlip: 'Voir de l’autre côté',
-    spPos: 'Position de coupe', spDepth: 'Plan ↔ profondeur', spEye: 'Hauteur d’œil {h} m · distance {d} m', spCapBlack: 'Poché noir de la coupe', spCapHint: 'Désactivé : seul le contour de coupe reste.',
+    spPos: 'Position de coupe', spDepth: 'Plan ↔ profondeur', spEye: 'Hauteur d’œil {h} m · distance {d} m', spCapBlack: 'Poché noir de la coupe', spLw: 'Épaisseur du trait', spCapHint: 'Désactivé : seul le contour de coupe reste.',
     spScenes: 'Scène', spLine: 'Trait', spSun: 'Soleil', spExplode: 'Éclaté', spProgram: 'Programme',
     spNeed: 'Ouvrez d’abord un modèle.', spNoCap: 'Trop d’objets : poché désactivé.', spVpAria: 'Point de fuite (glisser)',
     sunDate: 'Date', sunTime: 'Heure', sunLat: 'Latitude', sunLon: 'Longitude', sunNorth: 'Direction du nord (°)', sunUtc: 'Décalage UTC', sunInfo: 'Hauteur du soleil {el}° · azimut {az}°', sunNight: 'Le soleil est sous l’horizon',
     progHint: 'Activez les calques à accentuer. Les autres restent gris clair.', progAccent: 'Accent',
     entTitle: 'Échelle humaine (personnes, arbres)', entAdd: 'Ajouter', entH: 'Hauteur (m)', entFlip: 'Inverser', entDel: 'Supprimer', entHint: 'PNG au trait, fond transparent. Cliquez le sol. Glisser pour déplacer, Maj pour la profondeur.',
-    entPlace: 'Cliquez le sol où poser l’élément', entNone: 'Aucun élément.', entBadImg: 'Image illisible.', entItem: 'Élément {n}',
+    entPlace: 'Cliquez le sol où poser l’élément', entCleared: 'L’axe de coupe a changé : éléments effacés', entNone: 'Aucun élément.', entBadImg: 'Image illisible.', entItem: 'Élément {n}',
     spSave: 'Enregistrer (JSON)', spLoad: 'Charger un réglage', spSaved: 'Réglages enregistrés', spLoaded: 'Réglages chargés', spBadJson: 'Fichier de réglages illisible.',
     spRenderFail: 'Extraction de traits indisponible sur cet appareil (WebGL2 requis).',
     spHintNote: 'Les motifs (parquet, briques) viendront ensuite.',
@@ -227,6 +227,7 @@ export function createSP(ctx) {
   const raw = hex => new THREE.Color().setStyle(hex, THREE.LinearSRGBColorSpace);
   const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 1000);
   cam.matrixAutoUpdate = true;
+  let keptPts = [];
   let rect = null, baseRect = null, dMin = 1, dMax = 100, depthExtent = 1;
   let mrt = null, shadowRT = null, mrtKey = '';
   let idMats = new Map();
@@ -267,17 +268,68 @@ export function createSP(ctx) {
     return b.isEmpty() ? s.box : b;
   }
   function computeBaseRect() {
-    const s = ctx.getState(); if (!s) return;
-    const box = currentBox();
-    const { right, e, W } = basis();
-    const pts = [];
-    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) pts.push(new THREE.Vector3(x, y, z));
-    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-    for (const p of pts) { const u = p.dot(right); u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, p.z); v1 = Math.max(v1, p.z); }
+    const s0 = ctx.getState(); if (!s0) return;
+    const { right, e } = basis();
+    const ai = AX[S.axis], cut = ctx.sliderValue(S.axis), sg = S.flip ? 1 : -1;
+    const tmp = new THREE.Box3(); const vtx = new THREE.Vector3();
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity, wmax = 0, n = 0;
+    keptPts = [];
+    s0.root.updateMatrixWorld(true);
+    for (const o of s0.sources) {
+      if (!o.visible || !o.geometry || !o.isMesh) continue; // curves and points are not drawn in this mode
+      const g = o.geometry; if (!g.boundingBox) g.computeBoundingBox(); if (g.boundingBox.isEmpty()) continue;
+      tmp.copy(g.boundingBox).applyMatrix4(o.matrixWorld);
+      const far = sg > 0 ? tmp.max.getComponent(ai) : tmp.min.getComponent(ai);
+      if (sg * (far - cut) < 0) continue; // entirely removed by the cut
+      wmax = Math.max(wmax, sg * (far - cut)); n++;
+      for (const x of [tmp.min.x, tmp.max.x]) for (const y of [tmp.min.y, tmp.max.y]) for (const z of [tmp.min.z, tmp.max.z]) {
+        const u = x * right.x + y * right.y + z * right.z;
+        u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, z); v1 = Math.max(v1, z);
+      }
+      // real vertices behind the cut (sampled) drive the projected fit; bounding boxes alone overstate L-shaped parts
+      const pos = g.attributes.position;
+      if (pos) {
+        const budget = Math.max(24, Math.floor(60000 / s0.sources.length));
+        const step = Math.max(1, Math.floor(pos.count / budget));
+        for (let i = 0; i < pos.count; i += step) {
+          vtx.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          const w = sg * (vtx.getComponent(ai) - cut);
+          if (w < 0) continue;
+          keptPts.push(vtx.x * right.x + vtx.y * right.y + vtx.z * right.z, vtx.z, w);
+        }
+      }
+    }
+    if (!n) { const b = currentBox(); u0 = Math.min(b.min.x * right.x, b.max.x * right.x) + Math.min(b.min.y * right.y, b.max.y * right.y); u1 = u0 + 1; v0 = b.min.z; v1 = b.max.z; wmax = 1; }
     const mu = (u1 - u0) * 0.06 + 1e-6, mv = (v1 - v0) * 0.06 + 1e-6;
     baseRect = { u0: u0 - mu, u1: u1 + mu, v0: v0 - mv, v1: v1 + mv };
-    depthExtent = Math.max(box.getSize(new THREE.Vector3()).dot(new THREE.Vector3(Math.abs(e.x), Math.abs(e.y), Math.abs(e.z))), 1e-6);
+    depthExtent = Math.max(wmax, (u1 - u0) * 0.05, 1e-6);
+    const ref = Math.max(depthExtent, 0.6 * (u1 - u0));
+    dMin = ref * 0.5; dMax = ref * 120;
     fitRect();
+  }
+  // frame the picture: choose the cut-plane rectangle so the perspective-projected model (not just its section) fills it.
+  // Done on cut / axis / flip changes only, so dragging the depth slider or vanishing point never moves the cut-plane points.
+  function refitProjected(recenter) {
+    if (!baseRect || !keptPts.length) return;
+    const d = depthD();
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (let i = 0; i < keptPts.length; i += 3) {
+      const sc = d / (d + keptPts[i + 2]);
+      const u = S.vu + (keptPts[i] - S.vu) * sc, v = S.vv + (keptPts[i + 1] - S.vv) * sc;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    const mm = meters();
+    for (const c of S.cards) {
+      const h = c.hM / mm, wd = h * c.aspect, sc = d / (d + c.w);
+      for (const uu of [c.u - wd / 2, c.u + wd / 2]) for (const vv of [c.v, c.v + h]) {
+        const u = S.vu + (uu - S.vu) * sc, v = S.vv + (vv - S.vv) * sc;
+        u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+      }
+    }
+    const mu = (u1 - u0) * 0.06 + 1e-6, mv = (v1 - v0) * 0.06 + 1e-6;
+    baseRect = { u0: u0 - mu, u1: u1 + mu, v0: v0 - mv, v1: v1 + mv };
+    fitRect();
+    void recenter; // the vanishing point keeps its world position; the frame moves around it
   }
   function fitRect() {
     if (!baseRect) return;
@@ -286,8 +338,6 @@ export function createSP(ctx) {
     let hw = (baseRect.u1 - baseRect.u0) / 2, hh = (baseRect.v1 - baseRect.v0) / 2;
     if (hw / hh < asp) hw = hh * asp; else hh = hw / asp;
     rect = { u0: cu - hw, u1: cu + hw, v0: cv - hh, v1: cv + hh };
-    const ref = Math.max(depthExtent, 0.6 * (rect.u1 - rect.u0));
-    dMin = ref * 0.5; dMax = ref * 120;
     S.vu = Math.min(rect.u1, Math.max(rect.u0, S.vu)); S.vv = Math.min(rect.v1, Math.max(rect.v0, S.vv));
   }
   function depthD() { return dMin * Math.pow(dMax / dMin, 1 - S.depth / 1000); }
@@ -432,6 +482,8 @@ export function createSP(ctx) {
     m.dispose = () => { od(); mk.dispose(); const i = capPairs.indexOf(pair); if (i >= 0) capPairs.splice(i, 1); };
     return m;
   }
+  function disposeMask() { if (maskRT) { maskRT.dispose(); maskRT = null; } }
+  function disposeShadow() { if (shadowRT) { shadowRT.dispose(); if (shadowRT.depthTexture) shadowRT.depthTexture.dispose(); shadowRT = null; } }
   function ensureMask(w, h) {
     if (maskRT && maskRT.width === w && maskRT.height === h) return;
     if (maskRT) maskRT.dispose();
@@ -578,7 +630,7 @@ export function createSP(ctx) {
     updateCamera();
     const outW = renderer.domElement.width, outH = renderer.domElement.height;
     if (!outW || !outH) return;
-    const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096);
+    const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 4096);
     let ss = opts.ss || ((outW * outH * 4 <= 24e6 && outW * 2 <= maxDim && outH * 2 <= maxDim) ? 2 : 1);
     const mw = outW * ss, mh = outH * ss;
     ensureMRT(mw, mh);
@@ -672,6 +724,7 @@ export function createSP(ctx) {
   }
   function syncFromSections() {
     if (!S.on) return;
+    if (baseRect) { computeBaseRect(); refitProjected(false); for (const c of S.cards) if (c.mesh) placeCardMesh(c); }
     const row = $(`.sec-row[data-axis="${S.axis}"] .sec-range`);
     if (row) { $('#spPos').value = row.value; }
     $('#spPosVal').textContent = ctx.getState() ? S.axis.toUpperCase() + ' = ' + ctx.fmt(ctx.sliderValue(S.axis)) + (ctx.getState().unit ? ' ' + ctx.getState().unit : '') : '';
@@ -722,17 +775,18 @@ export function createSP(ctx) {
     }
   }
   function setAxis(a) {
+    if (a !== S.axis && S.cards.length) { for (const c of S.cards) disposeCard(c); S.cards = []; S.sel = -1; refreshCardList(); ctx.toast(t('entCleared')); }
     S.axis = a;
     $$('#spAxis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === a)));
     if (!ctx.sec[a].on) ctx.sec[a].v = bestCut();
-    computeBaseRect(); setDefaultVP(); setDefaultDepth();
+    computeBaseRect(); setDefaultVP(); setDefaultDepth(); refitProjected(true);
     reapplyAxisSection();
     syncFromSections();
     ctx.requestRender();
   }
   function onModelChange() {
     if (!S.on || !ctx.getState()) return;
-    computeBaseRect();
+    computeBaseRect(); refitProjected(false);
     ctx.requestRender();
   }
   function onResize() {
@@ -762,7 +816,7 @@ export function createSP(ctx) {
     scene.add(cardGroup);
     for (const c of S.cards) { if (!c.mesh) buildCardMesh(c); }
     if (!snapshot.sec[S.axis].on) sc[S.axis].v = bestCut();
-    computeBaseRect(); setDefaultVP(); setDefaultDepth();
+    computeBaseRect(); setDefaultVP(); setDefaultDepth(); refitProjected(true);
     $('#spLw').value = Math.round(S.lw * 100);
     reapplyAxisSection();
     syncFromSections();
@@ -788,15 +842,14 @@ export function createSP(ctx) {
       ctx.explode.set({ gap: snapshot.exGap }); ctx.syncExplodeUI();
     }
     ctx.controlsEnabled(true);
-    disposeIdMats(); disposeMRT();
-    if (shadowRT) { shadowRT.dispose(); shadowRT.depthTexture.dispose(); shadowRT = null; }
+    disposeIdMats(); disposeMRT(); disposeMask(); disposeShadow();
     placing = null; canvas.style.cursor = '';
     ctx.rebuildCaps();
     ctx.requestRender();
   }
   function reset() { // new model loaded or old one disposed
     if (S.on) { S.on = false; ctx.app.classList.remove('sp-on'); $('#spBtn').setAttribute('aria-pressed', 'false'); $('#spHandle').hidden = true; $('#spLegend').hidden = true; scene.remove(cardGroup); ctx.controlsEnabled(true); canvas.style.cursor = ''; }
-    disposeIdMats(); disposeMRT();
+    disposeIdMats(); disposeMRT(); disposeMask(); disposeShadow();
     for (const c of S.cards) disposeCard(c);
     S.cards = []; S.sel = -1; S.accent = new Set(); S.accentInit = false; baseRect = null; rect = null; placing = null;
     $('#secSP').hidden = true;
@@ -844,6 +897,19 @@ export function createSP(ctx) {
       o[i * 4 + 2] = Math.round(255 * (1 - a) + d[i * 4 + 2] * a);
       o[i * 4 + 3] = 255;
     }
+    // peel the light JPG ring that hugs the outline: light pixels touching the outside become outside (dark strokes stay)
+    for (let pass = 0; pass < 3; pass++) {
+      const kill = [];
+      for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+        const i = y * W + x;
+        if (o[i * 4 + 3] === 0) continue;
+        if (o[i * 4 + 3] === 255 && (o[(i - 1) * 4 + 3] === 0 || o[(i + 1) * 4 + 3] === 0 || o[(i - W) * 4 + 3] === 0 || o[(i + W) * 4 + 3] === 0)) {
+          const lum = (o[i * 4] + o[i * 4 + 1] + o[i * 4 + 2]) / 3;
+          if (lum > 175) kill.push(i);
+        }
+      }
+      for (const i of kill) o[i * 4 + 3] = 0;
+    }
     cx.putImageData(out, 0, 0);
     return cv;
   }
@@ -870,12 +936,14 @@ export function createSP(ctx) {
   }
   function disposeCard(c) { if (c.mesh) { cardGroup.remove(c.mesh); c.mesh.geometry.dispose(); c.mesh.material.dispose(); c.tex && c.tex.dispose(); c.mesh = null; } }
   function addCardFromFile(file) {
+    if (!file || file.type !== 'image/png' || file.size > 10 * 1024 * 1024) { ctx.toast(t('entBadImg')); return; }
     const rd = new FileReader();
     rd.onload = () => {
       const img = new Image();
       img.onload = () => {
+        if (img.naturalWidth < 1 || img.naturalHeight < 1) { ctx.toast(t('entBadImg')); return; }
         const cv = processCardImage(img);
-        placing = { dataUrl: rd.result, canvas: cv, aspect: cv.width / cv.height, name: file.name.replace(/\.[^.]+$/, '') };
+        placing = { dataUrl: cv.toDataURL('image/png'), canvas: cv, aspect: cv.width / cv.height, name: file.name.replace(/\.[^.]+$/, '').slice(0, 60) };
         canvas.style.cursor = 'copy';
         ctx.toast(t('entPlace'), 4000);
         if (matchMedia('(max-width: 720px)').matches) ctx.setPanel(false);
@@ -1000,7 +1068,8 @@ export function createSP(ctx) {
     // caller has already set pixel ratio k and size; render with the larger MRT budget
     return new Promise(res => {
       const outW = canvas.width, outH = canvas.height;
-      const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096);
+      const g2 = renderer.getContext();
+      const maxDim = Math.min(8192, renderer.capabilities.maxTextureSize || 4096, g2.getParameter(g2.MAX_RENDERBUFFER_SIZE) || 4096);
       const ss = (outW * outH * 4 <= 24e6 && outW * 2 <= maxDim && outH * 2 <= maxDim) ? 2 : 1;
       render({ ss, transparent });
       canvas.toBlob(res, 'image/png');
@@ -1011,32 +1080,61 @@ export function createSP(ctx) {
     return {
       app: 'atelier-view', kind: 'section-perspective', version: 1, model: s ? s.name : null,
       axis: S.axis, flip: S.flip, position: ctx.sec[S.axis].v, vanishing: { u: S.vu, v: S.vv }, depth: S.depth, lw: S.lw, scene: S.scene, capBlack: S.capBlack,
-      sun: { ...S.sun }, accent: [...S.accent],
+      frame: baseRect ? { ...baseRect } : null, sun: { ...S.sun }, accent: [...S.accent],
       explode: { kind: ctx.explode.st.kind, dir: ctx.explode.st.dir, gap: ctx.explode.st.gap },
       cards: S.cards.map(c => ({ name: c.name, dataUrl: c.dataUrl, hM: c.hM, flip: c.flip, u: c.u, v: c.v, w: c.w, aspect: c.aspect })),
     };
   }
+  const PNG_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
+  const clamp = (v, lo, hi, d) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; };
+  function loadCardImage(src) {
+    return new Promise(res => {
+      if (typeof src !== 'string' || src.length > 5000000 || !PNG_URL.test(src)) { res(null); return; }
+      const img = new Image();
+      const timer = setTimeout(() => res(null), 8000);
+      img.onload = () => { clearTimeout(timer); try { res(img.naturalWidth > 0 && img.naturalHeight > 0 ? processCardImage(img) : null); } catch (e) { res(null); } };
+      img.onerror = () => { clearTimeout(timer); res(null); };
+      img.src = src;
+    });
+  }
   async function fromJSON(j) {
-    if (!j || j.kind !== 'section-perspective') throw new Error('bad');
+    if (!j || typeof j !== 'object' || j.kind !== 'section-perspective') throw new Error('bad');
     if (!S.on && !enter()) return;
-    S.axis = j.axis === 'x' ? 'x' : 'y'; S.flip = !!j.flip; S.depth = +j.depth || 650; S.lw = +j.lw > 0 ? +j.lw : 1; $('#spLw').value = Math.round(S.lw * 100); S.capBlack = j.capBlack !== false;
-    ctx.sec[S.axis].v = Math.max(0, Math.min(1000, +j.position || 500));
+    S.axis = j.axis === 'x' ? 'x' : 'y'; S.flip = !!j.flip;
+    S.depth = clamp(j.depth, 0, 1000, 650); S.lw = clamp(j.lw, 0.3, 3, 1); S.capBlack = j.capBlack !== false;
+    $('#spLw').value = Math.round(S.lw * 100); $('#spDepth').value = S.depth; $('#spCapBlack').checked = S.capBlack;
+    ctx.sec[S.axis].v = clamp(j.position, 0, 1000, 500);
     $$('#spAxis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === S.axis)));
-    $('#spDepth').value = S.depth; $('#spCapBlack').checked = S.capBlack;
-    if (j.sun) Object.assign(S.sun, j.sun);
-    S.accent = new Set(j.accent || []); S.accentInit = true;
-    if (j.explode) ctx.explode.set({ kind: j.explode.kind, dir: j.explode.dir, gap: j.explode.gap });
+    if (j.sun && typeof j.sun === 'object') {
+      const sn = j.sun;
+      if (typeof sn.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sn.date) && !Number.isNaN(Date.parse(sn.date))) S.sun.date = sn.date;
+      S.sun.minutes = Math.round(clamp(sn.minutes, 0, 1439, S.sun.minutes));
+      S.sun.lat = clamp(sn.lat, -89, 89, S.sun.lat); S.sun.lon = clamp(sn.lon, -180, 180, S.sun.lon);
+      S.sun.north = clamp(sn.north, -360, 360, S.sun.north); S.sun.utc = clamp(sn.utc, -12, 14, S.sun.utc); S.sun.utcEdited = !!sn.utcEdited;
+    }
+    S.accent = new Set(Array.isArray(j.accent) ? j.accent.filter(n => Number.isInteger(n) && n >= 0 && n < 100000).slice(0, 500) : []); S.accentInit = true;
+    if (j.explode && typeof j.explode === 'object') ctx.explode.set({ kind: j.explode.kind === 'layers' ? 'layers' : 'floors', dir: j.explode.dir === 'side' ? 'side' : 'up', gap: clamp(j.explode.gap, 0, 1, 0) });
     ctx.syncExplodeUI(); syncSunUI();
-    const sec = ctx.sec[S.axis]; $(`.sec-row[data-axis="${S.axis}"] .sec-range`).value = sec.v;
-    computeBaseRect();
-    S.vu = j.vanishing ? +j.vanishing.u : S.vu; S.vv = j.vanishing ? +j.vanishing.v : S.vv;
+    $(`.sec-row[data-axis="${S.axis}"] .sec-range`).value = ctx.sec[S.axis].v;
     reapplyAxisSection();
+    computeBaseRect();
+    if (j.vanishing && typeof j.vanishing === 'object') { S.vu = clamp(j.vanishing.u, rect.u0, rect.u1, S.vu); S.vv = clamp(j.vanishing.v, rect.v0, rect.v1, S.vv); }
     for (const c of S.cards) disposeCard(c);
     S.cards = [];
-    for (const c of j.cards || []) {
-      await new Promise(r => { const img = new Image(); img.onload = () => { const cv = processCardImage(img); const cc = { name: c.name, dataUrl: c.dataUrl, canvas: cv, aspect: c.aspect || cv.width / cv.height, hM: c.hM || 1.75, flip: !!c.flip, u: c.u, v: c.v, w: c.w }; S.cards.push(cc); buildCardMesh(cc); r(); }; img.onerror = r; img.src = c.dataUrl; });
+    try {
+      const list = Array.isArray(j.cards) ? j.cards.slice(0, 50) : [];
+      for (const c of list) {
+        if (!c || typeof c !== 'object') continue;
+        const cv = await loadCardImage(c.dataUrl);
+        if (!cv) continue;
+        const cc = { name: typeof c.name === 'string' ? c.name.slice(0, 60) : '', dataUrl: c.dataUrl, canvas: cv, aspect: cv.width / cv.height, hM: clamp(c.hM, 0.1, 100, 1.75), flip: !!c.flip, u: clamp(c.u, -1e7, 1e7, 0), v: clamp(c.v, -1e7, 1e7, 0), w: clamp(c.w, 0, 1e7, 0) };
+        S.cards.push(cc); buildCardMesh(cc);
+      }
+    } finally {
+      refreshCardList(); syncFromSections();
+      { const f = j.frame; if (f && [f.u0, f.u1, f.v0, f.v1].every(Number.isFinite) && f.u1 > f.u0 && f.v1 > f.v0) { baseRect = { u0: +f.u0, u1: +f.u1, v0: +f.v0, v1: +f.v1 }; fitRect(); } }
+      setScene(['line', 'sun', 'explode', 'program'].includes(j.scene) ? j.scene : 'line'); ctx.requestRender();
     }
-    refreshCardList(); syncFromSections(); setScene(j.scene || 'line'); ctx.requestRender();
   }
 
   /* ---------- wiring ---------- */
@@ -1047,7 +1145,14 @@ export function createSP(ctx) {
   }
   $('#spBtn').addEventListener('click', () => { if (S.on) exit(); else enter(); });
   $$('#spAxis button').forEach(b => b.addEventListener('click', () => { if (S.on) setAxis(b.dataset.axis); }));
-  $('#spFlip').addEventListener('click', () => { if (!S.on) return; S.flip = !S.flip; computeBaseRect(); reapplyAxisSection(); ctx.requestRender(); });
+  $('#spFlip').addEventListener('click', () => {
+    if (!S.on) return;
+    S.flip = !S.flip; S.vu = -S.vu;
+    for (const c of S.cards) c.u = -c.u;
+    reapplyAxisSection(); computeBaseRect(); setDefaultDepth(); refitProjected(true);
+    for (const c of S.cards) if (c.mesh) placeCardMesh(c);
+    ctx.requestRender();
+  });
   $('#spPos').addEventListener('input', e => {
     if (!S.on) return;
     const row = $(`.sec-row[data-axis="${S.axis}"] .sec-range`);

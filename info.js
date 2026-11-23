@@ -39,6 +39,7 @@ export function createInfo(ctx) {
       }
     }
     fill();
+    if (o) { const d = $('#secObj'); if (d) d.open = true; }
     ctx.requestRender();
   }
   const typeLabel = o => {
@@ -100,5 +101,5 @@ export function createInfo(ctx) {
     select(pick(e));
   });
   $('#objClear').addEventListener('click', () => select(null));
-  return { select, reset() { clearHL(); sel = null; fill(); }, refresh: fill, get selected() { return sel; } };
+  return { onResize(w, h) { if (hlMat) hlMat.resolution.set(w, h); }, select, reset() { clearHL(); sel = null; fill(); }, refresh: fill, get selected() { return sel; } };
 }
