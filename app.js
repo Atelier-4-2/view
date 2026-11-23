@@ -29,6 +29,7 @@ const DICT = {
     privacy: '파일은 이 기기 밖으로 나가지 않습니다.',
     panel: '패널', viewsAria: '뷰', modesAria: '표시 모드',
     vPersp: '원근', vTop: '평면', vFront: '정면', vRight: '우측', vAxo: '액소', fit: '전체 보기',
+    navOrbit: '회전', navPan: '이동',
     mShaded: '음영', mWhite: '흰 모형', mWire: '와이어', mGhost: '고스트', measure: '측정', open: '열기',
     emptyTitle: 'Rhino 파일(.3dm)을 여기에 놓으세요', emptySub: '파일은 이 기기 밖으로 나가지 않습니다',
     pick: '파일 선택', sample: '샘플 보기', formats: '.3dm · .obj · .stl · .glb · .gltf 파일도 열 수 있습니다.',
@@ -55,6 +56,7 @@ const DICT = {
     privacy: 'Le fichier ne quitte jamais cet appareil.',
     panel: 'Panneau', viewsAria: 'Vues', modesAria: 'Mode d’affichage',
     vPersp: 'Persp.', vTop: 'Plan', vFront: 'Façade', vRight: 'Droite', vAxo: 'Axo', fit: 'Tout voir',
+    navOrbit: 'Pivoter', navPan: 'Déplacer',
     mShaded: 'Ombré', mWhite: 'Maquette', mWire: 'Filaire', mGhost: 'Fantôme', measure: 'Mesure', open: 'Ouvrir',
     emptyTitle: 'Déposez un fichier Rhino (.3dm) ici', emptySub: 'Le fichier ne quitte jamais cet appareil',
     pick: 'Choisir un fichier', sample: 'Voir l’exemple', formats: 'Formats .3dm · .obj · .stl · .glb · .gltf acceptés.',
@@ -125,12 +127,40 @@ const controlsP = new OrbitControls(persp, canvas);
 const controlsO = new OrbitControls(ortho, canvas);
 for (const c of [controlsP, controlsO]) {
   c.enableDamping = false;
+  c.enableRotate = true;
+  c.enableZoom = true;
+  c.enablePan = true;
+  c.zoomSpeed = 1.2;
+  c.rotateSpeed = 0.9;
+  c.panSpeed = 0.9;
   c.screenSpacePanning = true;
   c.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   c.addEventListener('change', requestRender);
 }
+canvas.addEventListener('wheel', e => { if (!sp || !sp.active) e.preventDefault(); }, { passive: false });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 controlsO.enabled = false;
 let controls = controlsP;
+let navMode = 'orbit';
+function applyMouseButtons() {
+  for (const c of [controlsP, controlsO]) {
+    // Rhino standard: Right-drag = Orbit, Shift+Right-drag = Pan (OrbitControls natively flips ROTATE->PAN on Shift), Middle-drag = Pan, Wheel = Zoom.
+    // Left-drag also follows the on-screen navMode toggle (orbit / pan) for trackpad convenience.
+    c.mouseButtons = {
+      LEFT: navMode === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.PAN,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    c.touches = navMode === 'pan'
+      ? { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE }
+      : { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+  }
+}
+function setNavMode(m) {
+  navMode = m === 'pan' ? 'pan' : 'orbit';
+  applyMouseButtons();
+  $$('#navModeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.nav === navMode)));
+}
 
 let renderQueued = false;
 function requestRender() {
@@ -668,6 +698,8 @@ function fitDist(r) {
 function setNearFar(r) {
   persp.near = Math.max(r * 0.003, 1e-4); persp.far = r * 200; persp.updateProjectionMatrix();
   ortho.near = -r * 60; ortho.far = r * 60; ortho.updateProjectionMatrix();
+  controlsP.minDistance = Math.max(r * 0.02, 1e-3); controlsP.maxDistance = r * 40;
+  controlsO.minZoom = 0.05; controlsO.maxZoom = 100;
 }
 function useCamera(which) {
   const toOrtho = which === 'ortho';
@@ -1073,9 +1105,22 @@ function setPanel(open) {
 }
 $('#panelBtn').addEventListener('click', () => setPanel(app.classList.contains('collapsed')));
 {
-  let open = !matchMedia('(max-width: 720px)').matches;
+  const mq = matchMedia('(max-width: 720px)');
+  let open = !mq.matches;
   try { const s = localStorage.getItem('atelier-view-panel'); if (s != null && open) open = s === '1'; } catch (e) { /* ignore */ }
   setPanel(open);
+  mq.addEventListener('change', e => { if (e.matches) setPanel(false); });
+}
+{
+  const step = THREE.MathUtils.degToRad(15);
+  $$('#navModeSeg button').forEach(b => b.addEventListener('click', () => setNavMode(b.dataset.nav)));
+  $('#navRotL')?.addEventListener('click', () => { if (state) keyOrbit(-step, 0); });
+  $('#navRotR')?.addEventListener('click', () => { if (state) keyOrbit(step, 0); });
+  $('#navRotU')?.addEventListener('click', () => { if (state) keyOrbit(0, step); });
+  $('#navRotD')?.addEventListener('click', () => { if (state) keyOrbit(0, -step); });
+  $('#navZoomIn')?.addEventListener('click', () => { if (state) keyZoom(1 / 1.2); });
+  $('#navZoomOut')?.addEventListener('click', () => { if (state) keyZoom(1.2); });
+  setNavMode('orbit');
 }
 $$('.lang button').forEach(b => b.addEventListener('click', () => {
   lang = b.dataset.lang;

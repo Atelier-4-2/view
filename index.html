@@ -31,8 +31,10 @@
         <nav class="site-switch" aria-label="Atelier 4·2" data-i18n-aria="navAria">
           <a href="https://atelier-4-2.github.io/site/">Terrain</a>
           <a href="https://atelier-4-2.github.io/board/">Board</a>
-          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
           <a href="./" aria-current="page">View</a>
+          <a href="https://atelier-4-2.github.io/crit/">Crit</a>
+          <a href="https://atelier-4-2.github.io/share/">Share</a>
+          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
         </nav>
         <div class="lang" role="group" aria-label="Langue / 언어">
           <button type="button" id="langFr" data-lang="fr" aria-pressed="false">FR</button>
@@ -254,6 +256,20 @@
       <div class="cap-frame" id="capFrame" hidden aria-hidden="true"></div>
       <div class="sp-handle" id="spHandle" hidden tabindex="0" role="slider" aria-label="소실점 (드래그)" data-i18n-aria="spVpAria"><i></i></div>
       <div class="sp-legend" id="spLegend" hidden></div>
+      <div class="nav-pad" id="navPad" role="group" aria-label="화면 조작">
+        <div class="seg nav-mode" role="group" id="navModeSeg">
+          <button type="button" data-nav="orbit" aria-pressed="true" data-i18n="navOrbit">회전</button>
+          <button type="button" data-nav="pan" aria-pressed="false" data-i18n="navPan">이동</button>
+        </div>
+        <div class="nav-btns">
+          <button type="button" class="btn sm" id="navRotL" title="←" aria-label="왼쪽으로 회전">↺</button>
+          <button type="button" class="btn sm" id="navRotR" title="→" aria-label="오른쪽으로 회전">↻</button>
+          <button type="button" class="btn sm" id="navRotU" title="↑" aria-label="위로 회전">↑</button>
+          <button type="button" class="btn sm" id="navRotD" title="↓" aria-label="아래로 회전">↓</button>
+          <button type="button" class="btn sm" id="navZoomOut" title="-" aria-label="축소">−</button>
+          <button type="button" class="btn sm" id="navZoomIn" title="+" aria-label="확대">+</button>
+        </div>
+      </div>
 
       <div class="empty" id="empty">
         <div class="empty-card" id="dropCard">
