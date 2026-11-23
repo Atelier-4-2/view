@@ -61,7 +61,7 @@ void main() {
     n = normalize(cross(dFdx(vVP), dFdy(vVP)));
     if (dot(n, vVP) > 0.0) n = -n;
   }
-  o0 = vec4(uId, 1.0); o1 = vec4(n * 0.5 + 0.5, 1.0); o2 = vec4(uFill, 1.0);
+  o0 = vec4(uId, 1.0); o1 = vec4(n * 0.5 + 0.5, (uCap > 0.5 || gl_FrontFacing) ? 1.0 : 0.5); o2 = vec4(uFill, 1.0);
 }`;
 const CAP_VERT = /* glsl */`
 uniform vec3 uRightV; uniform vec4 uRect;
@@ -140,8 +140,9 @@ void main() {
       vec3 np = texelFetch(tNor, p, 0).rgb * 2.0 - 1.0;
       vec3 Pp = objp ? vpos(p, dp) : vec3(0.0);
       float pxw = 2.0 * dp / (uP00 * uMrt.x);
-      float strength = 0.0, lineW = 1.0;
-      if (!cardp) {
+      float strength = 0.0, lineW = 1.0, lineBack = 0.0;
+      bool backp = objp && texelFetch(tNor, p, 0).a < 0.8;
+      if (!cardp && !capp) {
         for (int L = 1; L <= 16; L++) {
           if (L > uLmax) break;
           for (int k = 0; k < 8; k++) {
@@ -151,7 +152,7 @@ void main() {
             vec4 idq = texelFetch(tId, q, 0);
             bool objq = idq.a > 0.5;
             if (!objp && !objq) continue;
-            if (objq && same3(idq.rgb, uCardId)) continue;
+            if (objq && (same3(idq.rgb, uCardId) || same3(idq.rgb, uCapId))) continue; // poché edge stays crisp, no extra stroke
             float len = float(L) * length(vec2(dv));
             float dq = objq ? lin(texelFetch(tDepth, q, 0).r) : uFar;
             float dn = min(objp ? dp : uFar, objq ? dq : uFar);
@@ -172,8 +173,10 @@ void main() {
             float cov = 0.0;
             if (sil) cov = clamp(rS - len + 1.0, 0.0, 1.0);
             else if (cr) cov = clamp(rC - len + 1.0, 0.0, 1.0);
-            if (cov > strength) { strength = cov; lineW = tf; }
-            else if (cov > 0.0 && cov >= strength * 0.99 && tf < lineW) lineW = tf;
+            bool backq = objq && texelFetch(tNor, q, 0).a < 0.8;
+            float bk = (backp || backq) ? 1.0 : 0.0;
+            if (cov > strength) { strength = cov; lineW = tf; lineBack = bk; }
+            else if (cov > 0.0 && cov >= strength * 0.99 && tf < lineW) { lineW = tf; lineBack = min(lineBack, bk); }
           }
         }
       }
@@ -200,7 +203,7 @@ void main() {
         }
       }
       float fade = smoothstep(0.55, 1.0, lineW);
-      vec3 ink = mix(uInk, uGray, fade);
+      vec3 ink = mix(mix(uInk, uGray, fade), uGray, 0.6 * lineBack);
       vec3 col = mix(base, ink, strength);
       float a = objp ? 1.0 : strength;
       acc += col * a; accA += a;
@@ -216,7 +219,7 @@ void main() {
 export function createSP(ctx) {
   const { THREE, renderer, scene, canvas, stage, $, $$, t } = ctx;
   const S = {
-    on: false, axis: 'y', flip: true, vu: 0, vv: 0, depth: 650, scene: 'line', capBlack: true,
+    on: false, axis: 'y', flip: true, vu: 0, vv: 0, depth: 650, lw: 1, scene: 'line', capBlack: true,
     sun: { date: '2026-06-21', minutes: 14 * 60, lat: 48.857, lon: 2.352, north: 0, utc: 2, utcEdited: false },
     accent: new Set(), cards: [], sel: -1, base: null,
   };
@@ -228,6 +231,7 @@ export function createSP(ctx) {
   let mrt = null, shadowRT = null, mrtKey = '';
   let idMats = new Map();
   const capPairs = [];
+  let tinySet = new Set();
   let maskRT = null;
   const maskCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.001, 10);
   const hiddenMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -287,14 +291,46 @@ export function createSP(ctx) {
     S.vu = Math.min(rect.u1, Math.max(rect.u0, S.vu)); S.vv = Math.min(rect.v1, Math.max(rect.v0, S.vv));
   }
   function depthD() { return dMin * Math.pow(dMax / dMin, 1 - S.depth / 1000); }
+  // closed meshes whose bounding box straddles the cut at axis position c
+  function straddlers(c) {
+    const s = ctx.getState(); const out = [];
+    const ai = AX[S.axis];
+    for (const o of s.sources) {
+      if (!o.isMesh || !o.visible || !isCappable(o)) continue;
+      const g = o.geometry; if (!g.boundingBox) g.computeBoundingBox();
+      const b = g.boundingBox.clone().applyMatrix4(o.matrixWorld);
+      if (b.min.getComponent(ai) <= c && b.max.getComponent(ai) >= c) out.push(b);
+    }
+    return out;
+  }
+  // most informative default cut: the plane (in the front 60 %) where closed solids cover the most area
+  function bestCut() {
+    const box = currentBox(); const ai = AX[S.axis];
+    const lo = box.min.getComponent(ai), hi = box.max.getComponent(ai);
+    let best = 0.3, bestScore = -1;
+    for (let i = 0; i <= 40; i++) {
+      const t = 0.05 + 0.37 * i / 40; const c = lo + (hi - lo) * t;
+      let sc = 0;
+      for (const b of straddlers(c)) { const sz = b.getSize(new THREE.Vector3()); sz.setComponent(ai, 1); sc += sz.x * sz.y * sz.z; }
+      if (sc > bestScore) { bestScore = sc; best = t; }
+    }
+    return Math.round(best * 1000);
+  }
   function setDefaultVP() {
-    const s = ctx.getState();
     const m = meters();
     S.vu = (rect.u0 + rect.u1) / 2;
-    const floor = currentBox().min.z;
-    const eye = floor + 1.6 / m;
-    S.vv = eye < rect.v1 ? eye : (rect.v0 + rect.v1) / 2;
-    if (!s) return;
+    const cut = ctx.sliderValue(S.axis);
+    const st = straddlers(cut);
+    const floor = st.length ? Math.min(...st.map(b => b.min.z)) : null;
+    const eye = floor != null ? floor + 1.6 / m : (rect.v0 + rect.v1) / 2;
+    S.vv = eye < rect.v1 && eye > rect.v0 ? eye : (rect.v0 + rect.v1) / 2;
+  }
+  // default d: about 1.2 x the model width behind the cut, so receding floors and walls visibly converge
+  function setDefaultDepth() {
+    const wModel = (baseRect.u1 - baseRect.u0) / 1.12;
+    const d = Math.min(dMax, Math.max(dMin, 1.2 * wModel));
+    S.depth = Math.round(1000 * (1 - Math.log(d / dMin) / Math.log(dMax / dMin)));
+    $('#spDepth').value = S.depth;
   }
   function updateCamera() {
     const { e, W, up, right } = basis();
@@ -451,7 +487,7 @@ export function createSP(ctx) {
       if (o.userData.edges) o.userData.edges.visible = false;
       if (!o.isMesh) o.visible = false;
       else if (opts.hide) o.material = hiddenMat;
-      else if (opts.ids) o.material = idMats.get(o) || o.material;
+      else if (opts.ids) { o.material = idMats.get(o) || o.material; if (tinySet.has(o)) o.visible = false; }
     }
     const caps = ctx.capObjects();
     const capVis = caps.map(c => [c, c.cap && c.cap.visible, c.parts.map(p => p.visible)]);
@@ -576,6 +612,18 @@ export function createSP(ctx) {
       for (const [cap, mat] of swapped) { cap.material = mat; mat.uniforms.uMask.value = maskRT.texture; mat.uniforms.uRightV.value.copy(right); mat.uniforms.uRect.value.set(rect.u0, rect.u1, rect.v0, rect.v1); }
     }
     const prevAuto = renderer.autoClear;
+    // objects that would cover < 2 output px are dropped so the far side is not cluttered
+    tinySet = new Set();
+    {
+      const f = cam.projectionMatrix.elements[5] * outH / 2, W = basis().W;
+      for (const o of s.sources) {
+        if (!o.isMesh || !o.visible) continue;
+        const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere();
+        const c = g.boundingSphere.center.clone().applyMatrix4(o.matrixWorld);
+        const dist = Math.max(c.clone().sub(cam.position).dot(W), 1e-6);
+        if (2 * g.boundingSphere.radius * f / dist < 2) tinySet.add(o);
+      }
+    }
     withPass({ ids: true, caps: true, cards: true }, () => {
       renderer.setRenderTarget(mrt);
       renderer.setClearColor(0x000000, 0);
@@ -585,8 +633,12 @@ export function createSP(ctx) {
     });
     const u = quadMat.uniforms;
     u.tId.value = mrt.texture[0]; u.tNor.value = mrt.texture[1]; u.tFill.value = mrt.texture[2]; u.tDepth.value = mrt.depthTexture;
-    u.uMrt.value.set(mw, mh); u.uSS.value = ss; u.uKS.value = k * ss;
-    u.uLmax.value = Math.min(16, Math.max(1, Math.ceil(1.1 * k * ss + 0.001)));
+    // widths are defined in OUTPUT pixels relative to the output height, so supersampling and export scale never thicken lines
+    const lw = S.lw, Ho = outH;
+    u.uMrt.value.set(mw, mh); u.uSS.value = ss; u.uKS.value = ss;
+    u.uRs0.value = lw * Ho / 900 / 2; u.uRs1.value = lw * Ho / 3000 / 2;
+    u.uRc0.value = lw * Ho / 2000 / 2; u.uRc1.value = lw * Ho / 3500 / 2;
+    u.uLmax.value = Math.min(16, Math.max(1, Math.ceil(u.uRs0.value * ss + 0.5)));
     u.uPInv.value.copy(cam.projectionMatrixInverse); u.uNear.value = cam.near; u.uFar.value = cam.far;
     u.uP00.value = cam.projectionMatrix.elements[0]; u.uP11.value = cam.projectionMatrix.elements[5];
     u.uCut.value = depthD(); u.uWRange.value = depthExtent;
@@ -672,7 +724,8 @@ export function createSP(ctx) {
   function setAxis(a) {
     S.axis = a;
     $$('#spAxis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === a)));
-    computeBaseRect(); setDefaultVP();
+    if (!ctx.sec[a].on) ctx.sec[a].v = bestCut();
+    computeBaseRect(); setDefaultVP(); setDefaultDepth();
     reapplyAxisSection();
     syncFromSections();
     ctx.requestRender();
@@ -708,7 +761,9 @@ export function createSP(ctx) {
     buildIdMats();
     scene.add(cardGroup);
     for (const c of S.cards) { if (!c.mesh) buildCardMesh(c); }
-    computeBaseRect(); setDefaultVP();
+    if (!snapshot.sec[S.axis].on) sc[S.axis].v = bestCut();
+    computeBaseRect(); setDefaultVP(); setDefaultDepth();
+    $('#spLw').value = Math.round(S.lw * 100);
     reapplyAxisSection();
     syncFromSections();
     setScene(S.scene);
@@ -955,7 +1010,7 @@ export function createSP(ctx) {
     const s = ctx.getState();
     return {
       app: 'atelier-view', kind: 'section-perspective', version: 1, model: s ? s.name : null,
-      axis: S.axis, flip: S.flip, position: ctx.sec[S.axis].v, vanishing: { u: S.vu, v: S.vv }, depth: S.depth, scene: S.scene, capBlack: S.capBlack,
+      axis: S.axis, flip: S.flip, position: ctx.sec[S.axis].v, vanishing: { u: S.vu, v: S.vv }, depth: S.depth, lw: S.lw, scene: S.scene, capBlack: S.capBlack,
       sun: { ...S.sun }, accent: [...S.accent],
       explode: { kind: ctx.explode.st.kind, dir: ctx.explode.st.dir, gap: ctx.explode.st.gap },
       cards: S.cards.map(c => ({ name: c.name, dataUrl: c.dataUrl, hM: c.hM, flip: c.flip, u: c.u, v: c.v, w: c.w, aspect: c.aspect })),
@@ -964,7 +1019,7 @@ export function createSP(ctx) {
   async function fromJSON(j) {
     if (!j || j.kind !== 'section-perspective') throw new Error('bad');
     if (!S.on && !enter()) return;
-    S.axis = j.axis === 'x' ? 'x' : 'y'; S.flip = !!j.flip; S.depth = +j.depth || 650; S.capBlack = j.capBlack !== false;
+    S.axis = j.axis === 'x' ? 'x' : 'y'; S.flip = !!j.flip; S.depth = +j.depth || 650; S.lw = +j.lw > 0 ? +j.lw : 1; $('#spLw').value = Math.round(S.lw * 100); S.capBlack = j.capBlack !== false;
     ctx.sec[S.axis].v = Math.max(0, Math.min(1000, +j.position || 500));
     $$('#spAxis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.axis === S.axis)));
     $('#spDepth').value = S.depth; $('#spCapBlack').checked = S.capBlack;
@@ -1000,6 +1055,7 @@ export function createSP(ctx) {
     syncFromSections();
   });
   $('#spDepth').addEventListener('input', e => { S.depth = +e.target.value; ctx.requestRender(); });
+  $('#spLw').addEventListener('input', e => { S.lw = Math.max(0.2, +e.target.value / 100); ctx.requestRender(); });
   $('#spCapBlack').addEventListener('change', e => { S.capBlack = e.target.checked; ctx.rebuildCaps(); });
   $$('#spSceneSeg button').forEach(b => b.addEventListener('click', () => { if (S.on) setScene(b.dataset.scene); }));
   const sunIn = (id, fn) => $(id).addEventListener('input', e => { fn(e.target); syncSunUI(); ctx.requestRender(); });
