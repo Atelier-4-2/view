@@ -243,6 +243,7 @@
           </div>
           <button type="button" class="btn" id="measureBtn" aria-pressed="false" data-i18n="measure" title="M">측정</button>
           <button type="button" class="btn" id="openBtn" data-i18n="open">열기</button>
+          <button type="button" class="btn" id="driveBtn">Drive</button>
         </div>
         <div class="tb-row sp-only">
           <div class="seg" role="group" aria-label="장면" data-i18n-aria="spScenes" id="spSceneSeg">
@@ -300,6 +301,27 @@
     </section>
   </div>
 
+  <dialog id="driveDlg" class="drive-dlg">
+    <form method="dialog" class="drive-dlg-body">
+      <h3 style="margin:0 0 8px">Drive 프로젝트 모델</h3>
+      <p id="driveStatus" class="hint" style="margin:0 0 10px">Google 로그인하면 프로젝트의 models/ 폴더에서 바로 열거나 올릴 수 있습니다.</p>
+      <div id="driveSignedOut">
+        <button type="button" class="btn primary" id="driveSignIn">Google 로그인</button>
+      </div>
+      <div id="driveSignedIn" hidden>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+          <select id="driveProjSel" style="flex:1;min-height:36px;border-radius:10px;border:1px solid var(--divider);padding:0 8px;background:var(--surface);color:var(--ink)"></select>
+          <button type="button" class="btn sm" id="driveUploadBtn">현재 모델 올리기</button>
+        </div>
+        <ul id="driveModelList" style="list-style:none;margin:0;padding:0;display:grid;gap:6px;max-height:240px;overflow:auto"></ul>
+        <p id="driveEmpty" class="hint" hidden>이 프로젝트의 models/ 폴더에 3D 파일이 없습니다.</p>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button type="button" class="btn sm" id="driveSignOut" hidden>로그아웃</button>
+        <button class="btn sm" value="close">닫기</button>
+      </div>
+    </form>
+  </dialog>
   <input type="file" id="fileInput" accept=".3dm,.obj,.stl,.glb,.gltf" hidden>
   <noscript><p style="padding:24px">JavaScript가 필요합니다.</p></noscript>
   <script type="module" src="./app.js"></script>

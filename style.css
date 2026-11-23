@@ -305,6 +305,9 @@ input[type="text"] {
   background: var(--surface); color: var(--ink); font: inherit; font-size: 12.5px; line-height: 1.45; resize: vertical;
 }
 .cap-frame { position: absolute; z-index: 4; pointer-events: none; border: 2px dashed #e5484d; box-shadow: 0 0 0 9999px rgb(0 0 0 / 12%); border-radius: 2px; }
+.drive-dlg { border: 1px solid var(--divider); border-radius: 16px; background: var(--paper); color: var(--ink); width: min(440px, calc(100% - 32px)); padding: 0; }
+.drive-dlg::backdrop { background: rgb(0 0 0 / 45%); }
+.drive-dlg-body { padding: 18px; }
 .nav-pad {
   position: absolute; z-index: 5; right: 12px; bottom: 12px;
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px;

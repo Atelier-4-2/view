@@ -1121,6 +1121,77 @@ $('#panelBtn').addEventListener('click', () => setPanel(app.classList.contains('
   $('#navZoomIn')?.addEventListener('click', () => { if (state) keyZoom(1 / 1.2); });
   $('#navZoomOut')?.addEventListener('click', () => { if (state) keyZoom(1.2); });
   setNavMode('orbit');
+
+  // Google Drive project models/ integration
+  const DRIVE_CLIENT_ID = '333501036096-o6m50cvb01b4t49kcedi4jq4a7kv42i3.apps.googleusercontent.com';
+  let vCloud = null, vProjId = new URLSearchParams(location.search).get('project') || localStorage.getItem('view-cloud-proj') || null;
+  let lastOpenedFile = null;
+  const origOpenFile = openFile;
+  openFile = function (f) { lastOpenedFile = f; return origOpenFile(f); };
+  async function ensureVCloud() {
+    if (vCloud) return vCloud;
+    const m = await import('./atelier-cloud.js');
+    vCloud = m.createCloud({ googleClientId: DRIVE_CLIENT_ID, rootFolderName: 'Atelier 4·2 Share' });
+    return vCloud;
+  }
+  function updateVDriveBtn() { const b = $('#driveBtn'); if (b) b.textContent = vCloud && vCloud.signedIn ? 'Drive ●' : 'Drive'; }
+  async function loadDriveModels() {
+    const ul = $('#driveModelList'), emp = $('#driveEmpty'); ul.textContent = ''; emp.hidden = true;
+    if (!vCloud || !vProjId) return;
+    $('#driveStatus').textContent = 'models/ 폴더를 불러오는 중…';
+    try {
+      const p = await vCloud.openProject(vProjId);
+      const files = (await p.listFiles('models')).filter(f => /\.(3dm|obj|stl|glb|gltf)$/i.test(f.name));
+      $('#driveStatus').textContent = (vCloud.user?.emailAddress || vCloud.user?.displayName || 'Google Drive') + ' 연결됨';
+      emp.hidden = files.length > 0;
+      for (const f of files) {
+        const li = document.createElement('li');
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm'; b.style.width = '100%'; b.style.justifyContent = 'space-between';
+        b.textContent = f.name + (f.size ? ' (' + (f.size / 1048576).toFixed(1) + ' MB)' : '');
+        b.onclick = async () => {
+          $('#driveDlg').close();
+          showProgress('Drive에서 모델 내려받는 중…', null);
+          try {
+            const blob = await p.downloadBlob('models/' + f.name);
+            const buf = await blob.arrayBuffer();
+            const ext = f.name.split('.').pop().toLowerCase();
+            lastOpenedFile = new File([blob], f.name);
+            await loadBuffer(buf, f.name, ext, buf.byteLength);
+          } catch (err) { hideProgress(); toast('Drive 모델을 열지 못했습니다.'); }
+        };
+        li.append(b); ul.append(li);
+      }
+    } catch (err) { $('#driveStatus').textContent = '프로젝트 모델을 불러오지 못했습니다.'; }
+  }
+  async function openVDriveDlg() {
+    const c = await ensureVCloud();
+    const s = c.signedIn ? (c.user || {}) : null;
+    $('#driveSignedOut').hidden = !!s; $('#driveSignedIn').hidden = !s; $('#driveSignOut').hidden = !s;
+    if (s) {
+      $('#driveStatus').textContent = (s.emailAddress || s.displayName || 'Google Drive') + ' 연결됨';
+      const list = await c.listProjects();
+      const sel = $('#driveProjSel'); sel.textContent = '';
+      for (const p of list) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; if (p.id === vProjId) o.selected = true; sel.append(o); }
+      if (!vProjId && list.length) { vProjId = list[0].id; try { localStorage.setItem('view-cloud-proj', vProjId); } catch {} }
+      if (vProjId) await loadDriveModels();
+    }
+    $('#driveDlg').showModal();
+  }
+  $('#driveBtn')?.addEventListener('click', openVDriveDlg);
+  $('#driveSignIn')?.addEventListener('click', async () => { try { const c = await ensureVCloud(); await c.signIn('google'); updateVDriveBtn(); await openVDriveDlg(); } catch {} });
+  $('#driveSignOut')?.addEventListener('click', async () => { if (vCloud) { await vCloud.signOut(); updateVDriveBtn(); $('#driveDlg').close(); } });
+  $('#driveProjSel')?.addEventListener('change', async () => { vProjId = $('#driveProjSel').value; try { localStorage.setItem('view-cloud-proj', vProjId); } catch {} await loadDriveModels(); });
+  $('#driveUploadBtn')?.addEventListener('click', async () => {
+    if (!lastOpenedFile || !vCloud || !vProjId) { toast('먼저 로컬 3D 파일을 열어 주세요.'); return; }
+    $('#driveStatus').textContent = 'Drive models/에 올리는 중…';
+    try {
+      const p = await vCloud.openProject(vProjId);
+      await p.uploadBlob('models/' + lastOpenedFile.name, lastOpenedFile, { overwrite: true });
+      toast('Drive models/에 저장했습니다.');
+      await loadDriveModels();
+    } catch { $('#driveStatus').textContent = '업로드에 실패했습니다.'; }
+  });
+  ensureVCloud().then(c => c.restore()).then(ok => { if (ok) updateVDriveBtn(); }).catch(() => {});
 }
 $$('.lang button').forEach(b => b.addEventListener('click', () => {
   lang = b.dataset.lang;
