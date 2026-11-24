@@ -12,8 +12,13 @@ import { createPrompt, PROMPT_DICT } from './prompt.js';
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Rhino is Z-up
 
 const RHINO_LIB = 'https://cdn.jsdelivr.net/npm/rhino3dm@8.0.1/';
-const BIG_FILE = 200 * 1024 * 1024;
-const CAP_MESH_LIMIT = 4000;
+const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent || '') || /iP(hone|od|ad)/.test(navigator.platform || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_MOBILE = IS_IOS || /Android|Mobile/i.test(navigator.userAgent || '');
+const BIG_FILE = (IS_MOBILE ? 40 : 200) * 1024 * 1024;
+const NAMED_VIEW_LIMIT = IS_MOBILE ? 0 : 50 * 1024 * 1024;
+const FAT_EDGE_MESH_LIMIT = 1500;
+const EDGE_VERT_BUDGET = IS_MOBILE ? 400000 : 3000000;
+const CAP_MESH_LIMIT = IS_MOBILE ? 1000 : 4000;
 const EDGE_ANGLE = 30;
 const EDGE_PX = 1.2;
 
@@ -107,7 +112,7 @@ const stage = $('#stage');
 const canvas = $('#gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, stencil: true, preserveDrawingBuffer: false });
 renderer.localClippingEnabled = true;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 2));
 const scene = new THREE.Scene();
 const persp = new THREE.PerspectiveCamera(40, 1, 0.1, 1000);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
@@ -212,18 +217,23 @@ function resize() {
   fitOrthoAspect();
   if (sp) sp.onResize();
   if (info) info.onResize(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
-  for (const m of edgeMats.values()) m.resolution.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
+  for (const m of edgeMats.values()) if (m.resolution) m.resolution.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
   requestRender();
 }
 new ResizeObserver(resize).observe(stage);
 
 /* ---------------- materials ---------------- */
-function edgeMat(key, color, opacity = 1) {
-  let m = edgeMats.get(key);
+function edgeMat(key, color, opacity = 1, thin = false) {
+  const k = (thin ? 't:' : '') + key;
+  let m = edgeMats.get(k);
   if (!m) {
-    m = new LineMaterial({ color, linewidth: EDGE_PX, transparent: opacity < 1, opacity, clippingPlanes: clipPlanes });
-    m.resolution.set(canvas.width, canvas.height);
-    edgeMats.set(key, m);
+    if (thin) {
+      m = new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity, clippingPlanes: clipPlanes });
+    } else {
+      m = new LineMaterial({ color, linewidth: EDGE_PX, transparent: opacity < 1, opacity, clippingPlanes: clipPlanes });
+      m.resolution.set(canvas.width, canvas.height);
+    }
+    edgeMats.set(k, m);
   }
   return m;
 }
@@ -258,10 +268,11 @@ function applyMode() {
       else o.material = hiddenMat;
       const ed = o.userData.edges;
       if (ed) {
+        const thin = !ed.isLineSegments2;
         ed.visible = mode !== 'shaded' || (ld && mode !== 'wire');
-        ed.material = (mode === 'white' || (ld && mode !== 'wire')) ? edgeMat('black', 0x111111)
-          : mode === 'ghost' ? edgeMat('ghost', 0x6e6e73, 0.55)
-          : edgeMat('w' + lc, new THREE.Color(lc).multiplyScalar(0.85));
+        ed.material = (mode === 'white' || (ld && mode !== 'wire')) ? edgeMat('black', 0x111111, 1, thin)
+          : mode === 'ghost' ? edgeMat('ghost', 0x6e6e73, 0.55, thin)
+          : edgeMat('w' + lc, new THREE.Color(lc).multiplyScalar(0.85), 1, thin);
       }
     } else if (o.isLine || o.isPoints) {
       const col = (mode === 'white' || mode === 'ghost') ? '#111111' : lc;
@@ -331,9 +342,11 @@ async function loadBuffer(buf, name, ext, size) {
 
 async function parse3dm(buf) {
   const { Rhino3dmLoader } = await import('three/addons/loaders/3DMLoader.js');
-  const namedRaw = await extractNamedViews(buf); // before parse: the loader transfers (detaches) the buffer
+  // Avoid double-parsing the full .3dm in WASM on mobile or large files (prevents iOS Safari OOM crashes).
+  const namedRaw = (NAMED_VIEW_LIMIT > 0 && buf.byteLength <= NAMED_VIEW_LIMIT) ? await extractNamedViews(buf) : [];
   const loader = new Rhino3dmLoader();
   loader.setLibraryPath(RHINO_LIB);
+  if (typeof loader.setWorkerLimit === 'function') loader.setWorkerLimit(1);
   let obj;
   try { obj = await new Promise((resolve, reject) => loader.parse(buf, resolve, reject)); }
   finally { loader.dispose(); }
@@ -349,7 +362,7 @@ async function parse3dm(buf) {
 }
 // three's 3DMLoader does not expose Rhino saved views, so read them straight from rhino3dm.
 async function extractNamedViews(buf) {
-  if (buf.byteLength > 150 * 1024 * 1024) return [];
+  if (!NAMED_VIEW_LIMIT || buf.byteLength > NAMED_VIEW_LIMIT) return [];
   let doc = null;
   try {
     const mod = await import(RHINO_LIB + 'rhino3dm.module.js');
@@ -480,6 +493,9 @@ async function install(parsed, name, size) {
 
   // materials + edges, in chunks so the UI stays alive
   const meshes = raw.filter(o => o.isMesh);
+  const useThinEdges = IS_MOBILE || meshes.length > FAT_EDGE_MESH_LIMIT;
+  const chunkStep = IS_MOBILE ? 50 : 150;
+  let edgeVerts = 0;
   showProgress(t('building'), 0);
   for (let i = 0; i < raw.length; i++) {
     const o = raw[i];
@@ -487,21 +503,32 @@ async function install(parsed, name, size) {
       o.userData.origMat = o.material;
       for (const m of (Array.isArray(o.material) ? o.material : [o.material])) { m.side = THREE.DoubleSide; m.clippingPlanes = clipPlanes; }
       if (o.geometry && o.geometry.attributes.position && !o.geometry.attributes.normal) o.geometry.computeVertexNormals();
-      const eg = new THREE.EdgesGeometry(o.geometry, EDGE_ANGLE);
-      if (eg.attributes.position.count) {
-        const g = new LineSegmentsGeometry().fromEdgesGeometry(eg);
-        const ls = new LineSegments2(g, edgeMat('black', 0x111111));
-        ls.frustumCulled = false;
-        ls.userData.helper = true;
-        o.add(ls);
-        o.userData.edges = ls;
+      if (edgeVerts < EDGE_VERT_BUDGET) {
+        const eg = new THREE.EdgesGeometry(o.geometry, EDGE_ANGLE);
+        const cnt = eg.attributes.position ? eg.attributes.position.count : 0;
+        if (cnt) {
+          edgeVerts += cnt;
+          let ls;
+          if (useThinEdges) {
+            ls = new THREE.LineSegments(eg, edgeMat('black', 0x111111, 1, true));
+          } else {
+            const g = new LineSegmentsGeometry().fromEdgesGeometry(eg);
+            eg.dispose();
+            ls = new LineSegments2(g, edgeMat('black', 0x111111, 1, false));
+          }
+          ls.frustumCulled = false;
+          ls.userData.helper = true;
+          o.add(ls);
+          o.userData.edges = ls;
+        } else {
+          eg.dispose();
+        }
       }
-      eg.dispose();
     } else {
       const ms = Array.isArray(o.material) ? o.material : [o.material];
       ms.forEach((m, k) => { const c = m.clone(); c.clippingPlanes = clipPlanes; if (Array.isArray(o.material)) o.material[k] = c; else o.material = c; });
     }
-    if (i % 150 === 149) { showProgress(t('building') + ' … ' + Math.round(i / raw.length * 100) + '%', i / raw.length); await nextFrame(); }
+    if (i % chunkStep === chunkStep - 1) { showProgress(t('building') + ' … ' + Math.round(i / raw.length * 100) + '%', i / raw.length); await nextFrame(); }
   }
   // initial layer visibility
   state.layerOn = layers.map(l => l.visible);
@@ -1040,7 +1067,7 @@ async function exportPng() {
     if (lineDraw) applyMode();
     renderer.setPixelRatio(k);
     renderer.setSize(w, h, false);
-    for (const m of edgeMats.values()) { m.linewidth = EDGE_PX * Math.max(1, k * 0.8); m.resolution.set(w * k, h * k); }
+    for (const m of edgeMats.values()) if (m.resolution) { m.linewidth = EDGE_PX * Math.max(1, k * 0.8); m.resolution.set(w * k, h * k); }
     if (bg === 'transparent') renderer.setClearColor(0xffffff, 0); else renderer.setClearColor(0xffffff, 1);
     label.hidden = true;
     renderer.render(scene, camera);
@@ -1053,7 +1080,7 @@ async function exportPng() {
     exporting = null;
     renderer.setPixelRatio(prevPR);
     renderer.setSize(w, h, false);
-    for (const m of edgeMats.values()) { m.linewidth = EDGE_PX; m.resolution.set(w * prevPR, h * prevPR); }
+    for (const m of edgeMats.values()) if (m.resolution) { m.linewidth = EDGE_PX; m.resolution.set(w * prevPR, h * prevPR); }
     renderer.setClearColor(prevClear, prevAlpha);
     if (lineDraw && !spMode) applyMode();
     requestRender();
@@ -1075,8 +1102,7 @@ $('#expBtn').addEventListener('click', exportPng);
 const fileInput = $('#fileInput');
 // iOS/iPadOS maps `accept` extensions to UTIs; .3dm has none unless a Rhino-aware app is installed,
 // so the picker greys the file out. Drop the filter there; openFile() still checks the extension.
-const isIOS = /iP(hone|od|ad)/.test(navigator.platform || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-if (isIOS) fileInput.removeAttribute('accept');
+if (IS_IOS) fileInput.removeAttribute('accept');
 const pickFile = () => fileInput.click();
 $('#pickBtn').addEventListener('click', pickFile);
 $('#openBtn').addEventListener('click', pickFile);

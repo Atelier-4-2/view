@@ -31,9 +31,14 @@ export function createInfo(ctx) {
       const src = o.userData.edges;
       const g = src ? src.geometry : null;
       if (g) {
-        hlMat = new LineMaterial({ color: 0xE6B89C, linewidth: 3.2, clippingPlanes: ctx.clipPlanes });
-        hlMat.resolution.set(canvas.width, canvas.height);
-        hl = new LineSegments2(g, hlMat);
+        if (src.isLineSegments2) {
+          hlMat = new LineMaterial({ color: 0xE6B89C, linewidth: 3.2, clippingPlanes: ctx.clipPlanes });
+          hlMat.resolution.set(canvas.width, canvas.height);
+          hl = new LineSegments2(g, hlMat);
+        } else {
+          hlMat = new THREE.LineBasicMaterial({ color: 0xE6B89C, clippingPlanes: ctx.clipPlanes });
+          hl = new THREE.LineSegments(g, hlMat);
+        }
         hl.frustumCulled = false; hl.renderOrder = 50; hl.userData.helper = true; hl.userData.hl = true;
         o.add(hl);
       }
@@ -101,5 +106,5 @@ export function createInfo(ctx) {
     select(pick(e));
   });
   $('#objClear').addEventListener('click', () => select(null));
-  return { onResize(w, h) { if (hlMat) hlMat.resolution.set(w, h); }, select, reset() { clearHL(); sel = null; fill(); }, refresh: fill, get selected() { return sel; } };
+  return { onResize(w, h) { if (hlMat && hlMat.resolution) hlMat.resolution.set(w, h); }, select, reset() { clearHL(); sel = null; fill(); }, refresh: fill, get selected() { return sel; } };
 }
